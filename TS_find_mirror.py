@@ -2,11 +2,11 @@
 import numpy as np,os,subprocess,datetime,copy
 from mirror_fn import mirror_fn
 class usingMethod:
-    def __init__(self,programm_name, dict_of_pars):
-        self.programm_name=programm_name
+    def __init__(self,program_name, dict_of_pars):
+        self.program_name=program_name
         self.settings=dict()
 
-        if self.programm_name=="xtb":
+        if self.program_name=="xtb":
             self.settings["chrg"]=dict_of_pars["chrg"]
             self.settings["uhf"]=dict_of_pars["uhf"]
             self.settings["force_constant"]=dict_of_pars["force_constant"]
@@ -14,7 +14,7 @@ class usingMethod:
             self.settings["solvent"]=dict_of_pars["solvent"]
             self.settings["rpath"]=dict_of_pars["rpath"]
             self.settings["acc"]=dict_of_pars["acc"]
-        elif self.programm_name=="orca":
+        elif self.program_name=="orca":
             self.settings["method_str"]=dict_of_pars["method_str"]#i.e. "B3LYP def2-SVP"
             self.settings["memory"]=dict_of_pars["memory"]
             self.settings["nprocs"]=dict_of_pars["nprocs"]
@@ -25,20 +25,20 @@ class usingMethod:
             self.settings["rpath"]=dict_of_pars["rpath"]
             self.ORCA_PATH=dict_of_pars["ORCA_PATH"]
         else:
-            raise ValueError(f"Unknown method: {self.programm_name}")
+            raise ValueError(f"Unknown method: {self.program_name}")
 
     #generic functions
     def get_energy(self):
-        if self.programm_name=="xtb":
+        if self.program_name=="xtb":
             return float(self.grad_strs[1].split()[6])
-        if self.programm_name=="orca":
+        if self.program_name=="orca":
             return self.__get_energy_orca()
     def read_xyz(self, xyz_name):
-        if self.programm_name=="xtb":
+        if self.program_name=="xtb":
             if xyz_name=="!result":
                 xyz_name="xtbopt.xyz"
             self.xyzs_strs=self.__read_file(xyz_name, self.settings["nAtoms"]+2)
-        if self.programm_name=="orca":
+        if self.program_name=="orca":
             if xyz_name=="!result":
                 xyz_name="inpfile_trj.xyz"
                 self.xyzs_strs=self.__read_last_struct(xyz_name)
@@ -46,15 +46,15 @@ class usingMethod:
                 self.xyzs_strs=self.__read_file(xyz_name, self.settings["nAtoms"]+2)
 
     def read_grad(self):
-        if self.programm_name=="xtb":
+        if self.program_name=="xtb":
             self.grad_strs=self.__read_file("gradient")
-        elif self.programm_name=="orca":
+        elif self.program_name=="orca":
             self.grad_strs=self.__read_file("inpfile.engrad")
 
     def extract_AB_dir(self, num_A:int,num_B:int):
-        if self.programm_name=="xtb":
+        if self.program_name=="xtb":
             return self.__extract_AB_dir_xtb(num_A,num_B)
-        elif self.programm_name=="orca":
+        elif self.program_name=="orca":
             return self.__extract_AB_dir_orca(num_A,num_B)
     
     def angle_3_ath(self, a1, a2, a3):
@@ -80,26 +80,26 @@ class usingMethod:
         
         
     def extractGradient(self, num):
-        if self.programm_name=="xtb":
+        if self.program_name=="xtb":
             return self.__extractGradient_xtb(num)
-        elif self.programm_name=="orca":
+        elif self.program_name=="orca":
             return self.__extractGradient_orca(num)
         
     def grad(self,xyz_name):
-        if self.programm_name=="xtb":
+        if self.program_name=="xtb":
             if xyz_name=="!result":
                 xyz_name="xtbopt.xyz"
                 with open(os.path.join(self.settings["rpath"],"xtbopt.xyz"), "w+") as file:
                     file.writelines(self.xyzs_strs)
             self.__grad_xtb(xyz_name)
 
-        elif self.programm_name=="orca":
+        elif self.program_name=="orca":
             self.__grad_orca(xyz_name)
 
 
     def opt_constrain(self,xyz_name:str,constrains:list):
         '''constrains is list of same lists: [ctype("bond","angle"),[related atoms],value]'''
-        if self.programm_name=="xtb":
+        if self.program_name=="xtb":
             if xyz_name=="!result":
                 xyz_name="xtbopt.xyz"
             control_strs=[]
@@ -114,13 +114,13 @@ class usingMethod:
                     raise ValueError(f"Unknown constrain type: {constrain[0]}")
             self.__save_control_xtb(control_strs)
             self.__opt_xtb(xyz_name)
-        elif self.programm_name=="orca":
+        elif self.program_name=="orca":
             self.__opt_constrain_orca(xyz_name,constrains)
 
     def xmol_xyzs_strs(self):
-        if self.programm_name=="xtb":
+        if self.program_name=="xtb":
             return self.xyzs_strs
-        if self.programm_name=="orca":
+        if self.program_name=="orca":
             return self.xyzs_strs
         
 
@@ -263,7 +263,7 @@ class usingMethod:
 
         
 class optTS:
-    def __init__(self, xyz_path:str,threshold_force:float=0, threshold_rel:float=0, mirror_coef:float=1, programm=dict(name="xtb"), mult=1, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True):
+    def __init__(self, xyz_path:str,threshold_force:float=0, threshold_rel:float=0, mirror_coef:float=1, program=dict(name="xtb"), mult=1, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True):
         cwd=os.getcwd()
         
         rpath=os.path.join(cwd, os.path.dirname(xyz_path))
@@ -302,19 +302,19 @@ class optTS:
         self.xyzs_strs=self.read_file(self.const_settings["xyz_name"])
         self.const_settings["nAtoms"]=int(self.xyzs_strs[0])
         
-        if programm["name"]=="xtb":
+        if program["name"]=="xtb":
             dict_to_uM=dict(rpath=self.const_settings["rpath"],
                             chrg=self.const_settings["chrg"],
                             uhf=self.const_settings["mult"]-1,
-                            force_constant=programm["force_constant"],
-                            acc=programm["acc"],
+                            force_constant=program["force_constant"],
+                            acc=program["acc"],
                             solvent=self.const_settings["solvent"],
                             nAtoms=self.const_settings["nAtoms"])
-        elif programm["name"]=="orca":
-            dict_to_uM=dict(method_str=programm["method_str"],
-                            memory=programm["memory"],
-                            nprocs=programm["nprocs"],
-                            ORCA_PATH=programm["ORCA_PATH"],
+        elif program["name"]=="orca":
+            dict_to_uM=dict(method_str=program["method_str"],
+                            memory=program["memory"],
+                            nprocs=program["nprocs"],
+                            ORCA_PATH=program["ORCA_PATH"],
                             
                             rpath=self.const_settings["rpath"],
                             chrg=self.const_settings["chrg"],
@@ -322,9 +322,9 @@ class optTS:
                             solvent=self.const_settings["solvent"],
                             nAtoms=self.const_settings["nAtoms"])
         else:
-            raise ValueError(f'Unknown method {programm["name"]}')
+            raise ValueError(f'Unknown method {program["name"]}')
 
-        self.Method=usingMethod(programm["name"],dict_to_uM)
+        self.Method=usingMethod(program["name"],dict_to_uM)
         self.Method.read_xyz(self.const_settings["xyz_name"])
         self.log_xyz() 
 
@@ -870,14 +870,14 @@ class optTS:
 if __name__ == "__main__":
     
     import argparse
-    parser = argparse.ArgumentParser(description='Method for finding TS by targeted bonds. You only need store bonds_to_search and <name>.xyz files to directory/ and then call that programm', epilog="When using ORCA, it's need to export its folder to PATH, LD_LIBRARY_PATH. If using multiprocessoring (openmpi) it's need to export its folders lib/ to LD_LIBRARY_PATH and bin/ to PATH")
+    parser = argparse.ArgumentParser(description='Method for finding TS by targeted bonds. You only need store bonds_to_search and <name>.xyz files to directory/ and then call that program', epilog="When using ORCA, it's need to export its folder to PATH, LD_LIBRARY_PATH. If using multiprocessoring (openmpi) it's need to export its folders lib/ to LD_LIBRARY_PATH and bin/ to PATH")
     parser.add_argument("xyz_path", type=str, help="xmol .xyz file with structure. File can be in any directory")
     parser.add_argument("-tf", "--treshold-force", type=float, default=0.00004,dest="threshold_force", help="that trashold is converged when max force on optimizing bonds less than its value. Default: 0.00004")
     parser.add_argument("-tr", "--treshold-rel", type=float, default=8.,dest="threshold_rel", help="that trashold is converged when max force on optimizing bonds divided by mean force on unconstrained bonds less then its value. Default: 8")
     parser.add_argument("-mc", "--mirror-coef", type=float, default=1.,dest="mirror_coef", help="The projection of the force at reflection of the longitudinal component relative to the phase vector is multiplied by this value. A decrease leads to a decrease in velocity, while an increase can cause oscillations near the transition state. Default: 1")
     parser.add_argument("--verbose",const=True, default=False,action='store_const', help="print output")
     parser.add_argument("-s", "--steps", type=int, default=2000, help="maximum number of steps that allowed to optimize TS. Default: 2000")
-    parser.add_argument("-p", "--programm", default="xtb",help="programm that used for gradient calculation and constraint optimization. \"xtb\" or \"orca\". Default: \"xtb\"")
+    parser.add_argument("-p", "--program", default="xtb",help="program that used for gradient calculation and constraint optimization. \"xtb\" or \"orca\". Default: \"xtb\"")
     parser.add_argument("-xfc","--xtb-force-consant",type=float,default=6.,dest="xfc",help="if using xtb that force constant is used in control file. Default: 6")
     parser.add_argument("-acc","--acc",type=float,default=0.05, dest="acc",help="if using xtb that acc is used. Default: 0.05")
     parser.add_argument("-oms","--orca-method-string", type=str, default="B3LYP def2-SVP",dest="method_str", help="method string on the top of orca file. Default: \"B3LYP def2-SVP\"")
@@ -897,7 +897,7 @@ if __name__ == "__main__":
           mirror_coef=1,
           print_output=args.verbose,
           maxstep=args.steps, 
-          programm=dict(name=args.programm, 
+          program=dict(name=args.program, 
                         method_str=args.method_str,
                         force_constant=args.xfc,
                         acc=args.acc,
@@ -906,6 +906,6 @@ if __name__ == "__main__":
                         ORCA_PATH=args.OPATH))
     '''
     initial_cwd=os.getcwd()
-    optTS(xyz_path=os.path.join("tests","piece_s_test", "to_opt.xyz"), threshold_rel=8, threshold_force=0.00001, mirror_coef=0.4, print_output=True, maxstep=10**4, programm=dict(name="xtb", force_constant= 6, acc=0.01),do_preopt=True,step_along=0)
-    #optTS(xyz_path=os.path.join("tests","piece_s_test", "to_opt.xyz"), threshold_rel=8, threshold_force=0.00001, mirror_coef=0.4, print_output=True, maxstep=10**4, programm=dict(name="orca", memory="2000", nprocs=8, ORCA_PATH="/opt", method_str="BP86 def2-SVP"),do_preopt=True,step_along=0)
+    optTS(xyz_path=os.path.join("tests","piece_s_test", "to_opt.xyz"), threshold_rel=8, threshold_force=0.00001, mirror_coef=0.4, print_output=True, maxstep=10**4, program=dict(name="xtb", force_constant= 6, acc=0.01),do_preopt=True,step_along=0)
+    #optTS(xyz_path=os.path.join("tests","piece_s_test", "to_opt.xyz"), threshold_rel=8, threshold_force=0.00001, mirror_coef=0.4, print_output=True, maxstep=10**4, program=dict(name="orca", memory="2000", nprocs=8, ORCA_PATH="/opt", method_str="BP86 def2-SVP"),do_preopt=True,step_along=0)
     '''
