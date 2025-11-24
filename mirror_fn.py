@@ -1,6 +1,6 @@
 def mirror_fn(grad,#list 3*N, gradient
               xyzs,#list 3*N, coord i.e.[[0, 1, 1],...]
-              search_DoFs,#list of reaction dofs: type, athoms, value. i.e. [["b", 1, 2, -1"],...] for stratching (-1) bond (b) between 1 and 2 athoms
+              search_DoFs,#list of reaction dofs: type, atoms, value. i.e. [["b", 1, 2, -1"],...] for stretching (-1) bond (b) between 1 and 2 athoms
               be_verbose
               ):
     #print(search_DoFs)
@@ -50,8 +50,8 @@ def mirror_fn(grad,#list 3*N, gradient
     if(be_verbose):
         print(abs(mul_res/(sqr_res*np.sum(m_grad*m_grad))**0.5))
         print (f"mgcos {mirror_grad_cos_used}")
-    m_grad=np.subtract(m_grad,(1+mirror_grad_cos_used)*np.multiply(mul_res/sqr_res,mirror_vec))#Это и будет эффективная отражнная сила
-    m_grad_mean=np.array([0,0,0])#Вычтем "движение центра масс"
+    m_grad=np.subtract(m_grad,(1+mirror_grad_cos_used)*np.multiply(mul_res/sqr_res,mirror_vec))#Это и будет эффективная отражнная сила and this is the effective reflected force
+    m_grad_mean=np.array([0,0,0])#Вычтем "движение центра масс" Substract the "motion of mass center"
     for i in range(nAthoms):
         m_grad_mean=np.add(m_grad_mean,m_grad[i])
     m_grad_mean/=nAthoms
