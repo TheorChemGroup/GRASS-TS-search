@@ -4,7 +4,7 @@ def angle_val(angle):
     a=np.array(angle)
     v1=np.subtract(a[1],a[0])
     v2=np.subtract(a[2],a[1])
-    return np.acos(np.matmul(v1,v2.T)/(np.matmul(v1,v1.T)*np.matmul(v2,v2.T))**0.5)
+    return np.arccos(np.matmul(v1,v2.T)/(np.matmul(v1,v1.T)*np.matmul(v2,v2.T))**0.5)
 
 def angle_derivative_vector(angle,vector):
     a=np.array(angle)

@@ -9,7 +9,7 @@ def dihedral_val(dihedral):
     u2pu3=np.cross(u2,u3)
     arg1=np.matmul(u2,np.cross(u1pu2,u2pu3).T)
     arg2=np.linalg.norm(u2)*np.matmul(u1pu2,u2pu3.T)
-    return np.arctan2(arg1, arg2)
+    return -np.arctan2(arg1, arg2)
 
 def dihedral_derivative_vector(dihedral,vector):
     d=np.array(dihedral)

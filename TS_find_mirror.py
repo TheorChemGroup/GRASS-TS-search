@@ -76,7 +76,7 @@ class usingMethod:
         u2pu3=np.cross(u2,u3)
         arg1=np.matmul(u2,np.cross(u1pu2,u2pu3).T)
         arg2=np.linalg.norm(u2)*np.matmul(u1pu2,u2pu3.T)
-        return np.arctan2(arg1, arg2)
+        return -np.arctan2(arg1, arg2)
         
         
     def extractGradient(self, num):
@@ -505,8 +505,10 @@ class optTS:
         if DoF_type=="angle":
             DoF_value=min(DoF_value,179.9)
         elif DoF_type=="dihedral":
-            DoF_value=min(DoF_value,179.9)
-            DoF_value=max(DoF_value,-179.9)
+            while DoF_value>180:
+                DoF_value-=360
+            while DoF_value<-180:
+                DoF_value+=360
         return DoF_value
     #~init fns
         
@@ -869,6 +871,7 @@ class optTS:
 #------run------#
 if __name__ == "__main__":
     
+    '''
     import argparse
     parser = argparse.ArgumentParser(description='Method for finding TS by targeted bonds. You only need store bonds_to_search and <name>.xyz files to directory/ and then call that program', epilog="When using ORCA, it's need to export its folder to PATH, LD_LIBRARY_PATH. If using multiprocessoring (openmpi) it's need to export its folders lib/ to LD_LIBRARY_PATH and bin/ to PATH")
     parser.add_argument("xyz_path", type=str, help="xmol .xyz file with structure. File can be in any directory")
@@ -906,6 +909,6 @@ if __name__ == "__main__":
                         ORCA_PATH=args.OPATH))
     '''
     initial_cwd=os.getcwd()
-    optTS(xyz_path=os.path.join("tests","piece_s_test", "to_opt.xyz"), threshold_rel=8, threshold_force=0.00001, mirror_coef=0.4, print_output=True, maxstep=10**4, program=dict(name="xtb", force_constant= 6, acc=0.01),do_preopt=True,step_along=0)
+    optTS(xyz_path=os.path.join("tests","2helic_ts2", "to_opt.xyz"), threshold_rel=8, threshold_force=0.00001, mirror_coef=0.4, print_output=True, maxstep=10**4, program=dict(name="xtb", force_constant= 6, acc=0.01),do_preopt=True,step_along=0.3)
     #optTS(xyz_path=os.path.join("tests","piece_s_test", "to_opt.xyz"), threshold_rel=8, threshold_force=0.00001, mirror_coef=0.4, print_output=True, maxstep=10**4, program=dict(name="orca", memory="2000", nprocs=8, ORCA_PATH="/opt", method_str="BP86 def2-SVP"),do_preopt=True,step_along=0)
-    '''
+    
