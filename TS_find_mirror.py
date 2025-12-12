@@ -1,6 +1,8 @@
-
+# yapf: disable
+import argparse
 import numpy as np,os,subprocess,datetime,copy
 from mirror_fn import mirror_fn
+
 class usingMethod:
     def __init__(self,program_name, dict_of_pars):
         self.program_name=program_name
@@ -589,7 +591,7 @@ class optTS:
                     print(self.least_force)
                     self.least_force=proj_len
                     self.best_xyzs_strs=copy.deepcopy(self.Method.xyzs_strs)
-                self.not_completed = not self.check_tresholds_converged(proj_len)
+                self.not_completed = not self.check_thresholds_converged(proj_len)
                 
                 #str_way=""
                 #for DoF_atoms in self.init_DoFs.keys():
@@ -850,33 +852,31 @@ class optTS:
                 num_forces+=1
         return sum_forces/num_forces if num_forces else 10000
     
-    def check_tresholds_converged(self,proj_len:float):
-        trashold_template=lambda name,cur,target,conv:f'{name} trashold {"{:15.7f}".format(cur)} of {"{:15.7f}".format(target)}: \033{"[92m" if conv else "[91mnot "}converged\033[00m'
+    def check_thresholds_converged(self,proj_len:float):
+        threshold_template=lambda name,cur,target,conv:f'{name} threshold {"{:15.7f}".format(cur)} of {"{:15.7f}".format(target)}: \033{"[92m" if conv else "[91mnot "}converged\033[00m'
         
         converged=True
         if self.const_settings["threshold_force"]!=0:
             cond=proj_len<=self.const_settings["threshold_force"]
-            self.ifprint(trashold_template("force   ",proj_len,self.const_settings["threshold_force"],cond))
+            self.ifprint(threshold_template("force   ",proj_len,self.const_settings["threshold_force"],cond))
             converged &= cond
                 
         if self.const_settings["threshold_rel"]!=0:
             mean_not_opt=self.mean_force()
             cur_threshold_rel=proj_len/mean_not_opt
             cond=cur_threshold_rel<=self.const_settings["threshold_rel"]
-            self.ifprint(trashold_template("relative",cur_threshold_rel,self.const_settings["threshold_rel"],cond))
+            self.ifprint(threshold_template("relative",cur_threshold_rel,self.const_settings["threshold_rel"],cond))
             converged &= cond
                
         return converged
     #~main loop fns
+
 #------run------#
 if __name__ == "__main__":
-    
-    '''
-    import argparse
     parser = argparse.ArgumentParser(description='Method for finding TS by targeted bonds. You only need store bonds_to_search and <name>.xyz files to directory/ and then call that program', epilog="When using ORCA, it's need to export its folder to PATH, LD_LIBRARY_PATH. If using multiprocessoring (openmpi) it's need to export its folders lib/ to LD_LIBRARY_PATH and bin/ to PATH")
     parser.add_argument("xyz_path", type=str, help="xmol .xyz file with structure. File can be in any directory")
-    parser.add_argument("-tf", "--treshold-force", type=float, default=0.00004,dest="threshold_force", help="that trashold is converged when max force on optimizing bonds less than its value. Default: 0.00004")
-    parser.add_argument("-tr", "--treshold-rel", type=float, default=8.,dest="threshold_rel", help="that trashold is converged when max force on optimizing bonds divided by mean force on unconstrained bonds less then its value. Default: 8")
+    parser.add_argument("-tf", "--threshold-force", type=float, default=0.00004,dest="threshold_force", help="that threshold is converged when max force on optimizing bonds less than its value. Default: 0.00004")
+    parser.add_argument("-tr", "--threshold-rel", type=float, default=8.,dest="threshold_rel", help="that threshold is converged when max force on optimizing bonds divided by mean force on unconstrained bonds less then its value. Default: 8")
     parser.add_argument("-mc", "--mirror-coef", type=float, default=1.,dest="mirror_coef", help="The projection of the force at reflection of the longitudinal component relative to the phase vector is multiplied by this value. A decrease leads to a decrease in velocity, while an increase can cause oscillations near the transition state. Default: 1")
     parser.add_argument("--verbose",const=True, default=False,action='store_const', help="print output")
     parser.add_argument("-s", "--steps", type=int, default=2000, help="maximum number of steps that allowed to optimize TS. Default: 2000")
@@ -907,8 +907,3 @@ if __name__ == "__main__":
                         nprocs=args.nprocs, 
                         memory=args.mem, 
                         ORCA_PATH=args.OPATH))
-    '''
-    initial_cwd=os.getcwd()
-    optTS(xyz_path=os.path.join("tests","2helic_ts2", "to_opt.xyz"), threshold_rel=8, threshold_force=0.00001, mirror_coef=0.4, print_output=True, maxstep=10**4, program=dict(name="xtb", force_constant= 6, acc=0.01),do_preopt=True,step_along=0.3)
-    #optTS(xyz_path=os.path.join("tests","piece_s_test", "to_opt.xyz"), threshold_rel=8, threshold_force=0.00001, mirror_coef=0.4, print_output=True, maxstep=10**4, program=dict(name="orca", memory="2000", nprocs=8, ORCA_PATH="/opt", method_str="BP86 def2-SVP"),do_preopt=True,step_along=0)
-    
