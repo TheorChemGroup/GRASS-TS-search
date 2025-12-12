@@ -1,12 +1,14 @@
+# yapf: disable
+import numpy as np
+from angle_3d_rev import find_vectors as f_v_a
+from dihedral_3d_rev import find_vectors as f_v_d
+
 def mirror_fn(grad,#list 3*N, gradient
               xyzs,#list 3*N, coord i.e.[[0, 1, 1],...]
               search_DoFs,#list of reaction dofs: type, atoms, value. i.e. [["b", 1, 2, -1"],...] for stretching (-1) bond (b) between 1 and 2 athoms
               be_verbose
               ):
     #print(search_DoFs)
-    import numpy as np
-    from angle_3d_rev import find_vectors as f_v_a
-    from dihedral_3d_rev import find_vectors as f_v_d
     m_grad=np.array(grad)
     nAthoms=len(xyzs)
     
@@ -95,5 +97,4 @@ if __name__ == "__main__":
         ["b", 1, 2, 1],
         ["b", 3, 4, 1]
     ]
-    print(mirror_fn(forces,xyzs,search_dofs))
-    
+    print(mirror_fn(forces,xyzs,search_dofs,False))
