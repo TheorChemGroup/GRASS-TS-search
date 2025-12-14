@@ -158,21 +158,19 @@ class usingMethod:
     def __opt_xtb(self,xyz_name):
         with open(os.path.join(self.settings["rpath"],"xtbout"),"w+") as xtbout:
             if self.settings["solvent"]=="vacuum":
-                p=subprocess.call(["xtb", "gfn1", xyz_name, "-I", "control","--uhf", str(self.settings["uhf"]),"--acc", str(self.settings["acc"]), "--opt"],stdout=xtbout)
+                p=subprocess.call(["xtb", "--gfn", "1", xyz_name, "-I", "control","--uhf", str(self.settings["uhf"]),"--acc", str(self.settings["acc"]), "--opt"],stdout=xtbout)
             else:
-                p=subprocess.call(["xtb", "gfn1", xyz_name, "-I", "control","--uhf", str(self.settings["uhf"]),"--alpb",self.settings["solvent"],"--acc", str(self.settings["acc"]), "--opt"],stdout=xtbout)
+                p=subprocess.call(["xtb", "--gfn", "1", xyz_name, "-I", "control","--uhf", str(self.settings["uhf"]),"--alpb",self.settings["solvent"],"--acc", str(self.settings["acc"]), "--opt"],stdout=xtbout)
             if p!=0:
-                print("abnormal termination of xtb. Exiting")
-                raise(Exception)
+                raise RuntimeError("abnormal termination of xtb. Exiting")
     def __grad_xtb(self,xyz_name):
         with open(os.path.join(self.settings["rpath"],"xtbout"),"w+") as xtbout:
             if self.settings["solvent"]=="vacuum":
-                p=subprocess.call(["xtb", "gfn1", xyz_name, "--chrg", str(self.settings["chrg"]), "--uhf", str(self.settings["uhf"]),"--acc", str(self.settings["acc"]),"--grad"],stdout=xtbout)
+                p=subprocess.call(["xtb", "--gfn", "1", xyz_name, "--chrg", str(self.settings["chrg"]), "--uhf", str(self.settings["uhf"]),"--acc", str(self.settings["acc"]),"--grad"],stdout=xtbout)
             else:
-                p=subprocess.call(["xtb", "gfn1", xyz_name, "--chrg", str(self.settings["chrg"]), "--uhf", str(self.settings["uhf"]),"--alpb", self.settings["solvent"],"--acc", str(self.settings["acc"]),"--grad"],stdout=xtbout)
+                p=subprocess.call(["xtb", "--gfn", "1", xyz_name, "--chrg", str(self.settings["chrg"]), "--uhf", str(self.settings["uhf"]),"--alpb", self.settings["solvent"],"--acc", str(self.settings["acc"]),"--grad"],stdout=xtbout)
             if p!=0:
-                print("abnormal termination of xtb. Exiting")
-                raise(Exception)
+                raise RuntimeError("abnormal termination of xtb. Exiting")
 
     def __extractGradient_xtb(self, num):
         line_num=num+self.settings["nAtoms"]+1
