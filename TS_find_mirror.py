@@ -237,11 +237,11 @@ class usingMethod:
             job.extend(["%geom\n", "Constraints\n"])
             for constrain in constrains:
                 if constrain[0]=="bond":
-                    job.append("{B "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[2]}" +" C}\n")
+                    job.append("{B "+f"{constrain[1][0]-1} {constrain[1][1]-1}" +" C}\n")
                 elif constrain[0]=="angle":
-                    job.append("{A "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[1][2]-1} {constrain[2]}" +" C}\n")
+                    job.append("{A "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[1][2]-1}" +" C}\n")
                 elif constrain[0]=="dihedral":
-                    job.append("{D "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[1][2]-1} {constrain[1][3]-1} {constrain[2]}" +" C}\n")
+                    job.append("{D "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[1][2]-1} {constrain[1][3]-1}" +" C}\n")
                 else:
                     raise ValueError(f"Unknown constrain type: {constrain[0]}")
             job.extend(["end\n","end\n"])
@@ -257,11 +257,140 @@ class usingMethod:
         with open(jobname, "w+") as file:
             file.writelines(job)
         with open(os.path.join(self.settings["rpath"],"outfile.out"),"w+") as orcaout:
-            subprocess.call([os.path.join(self.ORCA_PATH,"orca"), jobname,"--use-hwthread-cpus"],stdout=orcaout)    
+            subprocess.call([os.path.join(self.ORCA_PATH,"orca"), jobname],stdout=orcaout)    
 
     #~orca
 
+class broyden():
+    def __init__(                 
+    self,
+    x0,
+    grad_fn,
+    h=0.1,
+    m_aa=10,
+    beta_relax = 0.3,
+    m_broyden=10,
+    Delta=2,
+    lambda_damp=0.2,
+    use_rotation=True,
+    use_aa=False,
+    use_broyden=True,
+    verbose=False
+):
+        """
+        Метод поиска седловой точки с использованием приближения якобиана по последним шагам
+        """
+        self.settings={"h":h,
+                       "m_aa":m_aa, 
+                       "beta_relax":beta_relax,
+                       "m_broyden":m_broyden,
+                       "Delta":Delta,
+                       "lambda_damp":lambda_damp,
+                       "use_rotation":use_rotation,
+                       "use_aa":use_aa,
+                       "use_broyden":use_broyden,
+                       "verbose":verbose,
+                       "t_J":0.4
+                       }
+        self.grad=grad_fn
+        self.d = len(x0) # dimension of problem 
+        self.nabla = np.concatenate(self.grad()) # initial gradient 
+        self.H = np.eye(self.d) # initial hessian
+        self.x = np.concatenate(np.array(x0))
+
+        self.it = 2 
+        self.n = self.x.size
+        self.traj = [self.x.copy()]
+
+        self.J = -np.eye(self.n) if use_broyden else None
+
+        # память для Anderson Acceleration
+        self.D_list, self.X_list = [], []
+
+        # память для multi-step Broyden
+        self.s_list, self.y_list = [], []
+
+        self.history = {"norm_f": [], "step_norm": [], "Delta": []}\
         
+
+    def broyden_step_before_calc_grad(self):
+        norm_nabla = np.linalg.norm(self.nabla)
+        self.history["norm_f"].append(norm_nabla)
+
+        if self.settings["verbose"]:
+            print(f"iter {self.it:3d} | ||f||={norm_nabla:.3e} | Delta={self.settings["Delta"]:.3e}")
+
+        # --- разложение якобиана ---
+        if self.settings["use_broyden"] and self.settings["use_rotation"]:
+            S = 0.5 * (self.J + self.J.T)
+            Omega = 0.5 * (self.J - self.J.T)
+            d = -np.linalg.solve(S,(self.nabla-0.00 *Omega @ self.x)) 
+        else:
+            d = self.nabla.copy()
+
+        step_norm = np.linalg.norm(d)
+        self.history["step_norm"].append(step_norm)
+        
+        # --- Anderson Acceleration ---
+        if self.settings["use_aa"]:
+            self.D_list.append(d.copy())
+            self.X_list.append(self.x.copy())
+            if len(self.D_list) > self.settings["m_aa"]:
+                self.D_list.pop(0)
+                self.X_list.pop(0)
+            if len(self.D_list) >= 2:
+                F_mat = np.column_stack(self.D_list)
+                try:
+                    alpha, _, _, _ = np.linalg.lstsq(F_mat, d, rcond=None)
+                    d = d - self.settings["beta_relax"] * (F_mat @ alpha)
+                except np.linalg.LinAlgError:
+                    pass
+
+        # --- trust-region ---
+        if self.settings["h"] * np.linalg.norm(d) > self.settings["Delta"]:
+            scale = self.settings["Delta"] / (self.settings["h"] * np.linalg.norm(d))
+        else:
+            scale = 1.0
+        s = self.settings["h"] * d * scale
+        self.x = self.x - s
+        
+        if self.settings["use_broyden"]:
+            self.s_list.append(s)
+
+        return self.x.reshape(-1, 3)
+        
+    def broyden_step_after_calc_grad(self):
+        nabla_new = np.concatenate(self.grad())
+        # --- multi-step damped Broyden update ---
+        if self.settings["use_broyden"]:
+            y = nabla_new - self.nabla
+            self.y_list.append(y)
+            if len(self.s_list) > self.settings["m_broyden"]:
+                self.s_list.pop(0)
+                self.y_list.pop(0)
+            J_new = -np.eye(self.n)  # базовое предположение, аналогично BFGS
+            for si, yi in zip(self.s_list, self.y_list):
+                delta = np.outer(yi - J_new @ si, si) / (np.dot(si, si) + 1e-12)
+                J_new += self.settings["lambda_damp"] * delta
+            self.J = J_new*(1-self.settings["t_J"]) + self.J*self.settings["t_J"]
+        print(self.J)
+        # --- обновление trust-region ---
+        if np.linalg.norm(nabla_new) < np.linalg.norm(self.nabla):
+            self.settings["Delta"] *= 1.2
+        else:
+            self.settings["Delta"] *= 0.5
+            if(self.settings["Delta"]<0.01):
+                self.settings["Delta"]=0.01
+
+        # --- обновление состояния ---
+        self.nabla = nabla_new
+        self.traj.append(self.x.copy())
+        self.history["Delta"].append(self.settings["Delta"])
+        
+        self.it+=1
+
+        return np.linalg.norm(nabla_new)
+    
 class optTS:
     def __init__(self, xyz_path:str,threshold_force:float=0, threshold_rel:float=0, mirror_coef:float=1, program=dict(name="xtb"), mult=1, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True):
         cwd=os.getcwd()
@@ -518,12 +647,13 @@ class optTS:
         self.settings["bond_reach_critical_len"]=True
         self.change_projections=copy.deepcopy(self.init_change_projections)
 
-                
+    def func_returns_grad(self):
+        return self.grad
+    
     def proceed(self):
         while self.not_completed:
             if self.settings["bond_reach_critical_len"]==True:
-                
-                self.Optimizer=0
+            
                 self.lens.clear()
                 self.ifprint("lens is clear")
                 self.atoms,self.xyzs=self.get_xyzs()
@@ -559,8 +689,12 @@ class optTS:
                 self.log_xyz()
                 self.Method.grad("!result")
                 self.Method.read_grad() 
+                self.grad, _=self.get_grad()
+                self.mirror()
+
+                self.Optimizer=broyden(self.xyzs,self.func_returns_grad)
                 
-                #self.log("","way_log.txt")
+                self.log("","way_log.txt")
                 #str_way=""
                 #for DoF_atoms in self.init_DoFs.keys():
                 #    if len(DoF_atoms)==2:
@@ -669,148 +803,19 @@ class optTS:
         self.grad, mirror_grad_cos=mirror_fn(self.grad,self.xyzs,self.search_DoFs, self.const_settings["print_output"])
         return mirror_grad_cos
     def move_DoFs(self):
-        b1=0.2
-        b1_diff=0.7
-        b2=0.995
-        eps=1e-7
-        eta=1.5e-2
-        eta_diff=1e-2
-        eta_r=3e-2
 
-        self.grad, maxgrad=self.get_grad()
-        mgcos=self.mirror()
-        mgsin_sqr=(1-mgcos*mgcos)**0.5
-        
-        TRUST_RAD=0.1
         #if(maxgrad*self.coef_grad>TRUST_RAD):
         #    self.coef_grad=TRUST_RAD/maxgrad
             
-        self.alter_grad()
+        #self.alter_grad()
         if 1:
-            #no_ADAM (rotational correction)
-            self.mt = b1*self.mt + (1-b1)*self.grad#*self.coef_grad
-            self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)#*self.coef_grad**2
-            mt_bias=1/(1-b1**(self.settings["step"]+1))*self.mt
-            vt_bias=(1-b2**(self.settings["step"]+1))*self.vt
-            
-            if(self.settings["step"]>0):
-                cur_diff_mt = -self.prev_grad+self.grad
-                self.diff_mt = b1_diff*self.diff_mt + (1-b1_diff)*cur_diff_mt
-                self.diff_vt = b2*self.diff_vt + (1-b2)*np.sum(cur_diff_mt*cur_diff_mt)
-                diff_mt_bias=1/(1-b1_diff**(self.settings["step"]+1))*self.diff_mt
-                diff_vt_bias=(1-b2**(self.settings["step"]+1))*self.diff_vt
-
-                vec_chang=-eta*(vt_bias+eps)**(-0.5) * mt_bias - eta_diff * mgsin_sqr * (diff_vt_bias+eps)**(-0.5)*diff_mt_bias
-            else:
-                vec_chang=-eta*(vt_bias+eps)**(-0.5) * mt_bias
-
-            norm_chang=np.linalg.norm(vec_chang)
-            if(norm_chang>TRUST_RAD):
-                vec_chang=TRUST_RAD/norm_chang*vec_chang
-            self.xyzs=self.xyzs+vec_chang
-            
-            self.prev_grad=copy.deepcopy(self.grad)
-            
+            self.xyzs=self.Optimizer.broyden_step_before_calc_grad()
             self.update_xyzs_strs()
             self.Method.grad("!result")
-            self.Method.read_grad() 
-        elif 0:
-            #ADAM (Egor idea)
-            self.mt = b1*self.mt + (1-b1)*self.grad#*self.coef_grad
-            self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)#*self.coef_grad**2
-            mt_bias=1/(1-b1**(self.settings["step"]+1))*self.mt
-            vt_bias=1/(1-b2**(self.settings["step"]+1))*self.vt
-            
-            if(self.settings["step"]>0):
-                v_c_1=-eta*(vt_bias**(-0.5)+eps) * mt_bias
-                vec_chang=v_c_1 +0.3*(v_c_1+ eta * (self.vt_bias_prev**(-0.5)+eps)*self.mt_bias_prev)
-            else:
-                vec_chang=-eta*(vt_bias+eps)**(-0.5) * mt_bias
-
-            norm_chang=np.linalg.norm(vec_chang)
-            if(norm_chang>TRUST_RAD):
-                vec_chang=TRUST_RAD/norm_chang*vec_chang
-            self.xyzs=self.xyzs+vec_chang
-            
-            self.vt_bias_prev=vt_bias
-            self.mt_bias_prev=mt_bias
-            
-            self.update_xyzs_strs()
-            self.Method.grad("!result")
-            self.Method.read_grad() 
-            
-        elif 0:
-            if(self.settings["step"]<1):
-                #adam (rotational correction)
-                self.prev_grad=copy.deepcopy(self.grad)
-                
-                self.apply_grad()
-                self.update_xyzs_strs()
-                self.Method.grad("!result")
-                self.Method.read_grad()
-            else:
-                self.mt = b1*self.mt + (1-b1)*self.grad
-                self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)
-
-                cur_diff_mt = -self.prev_grad+self.grad
-                self.diff_mt = b1_diff*self.diff_mt + (1-b1_diff)*cur_diff_mt
-                self.diff_vt = b2*self.diff_vt + (1-b2)*np.sum(cur_diff_mt*cur_diff_mt)
-
-                mt_bias=1/(1-b1**(self.settings["step"]))*self.mt
-                vt_bias=1/(1-b2**(self.settings["step"]))*self.vt
-
-                diff_mt_bias=1/(1-b1_diff**(self.settings["step"]))*self.diff_mt
-                diff_vt_bias=1/(1-b2**(self.settings["step"]))*self.diff_vt
-
-                vec_chang=-eta*(vt_bias**(-0.5)+eps) * mt_bias - eta_diff * mgsin_sqr * (diff_vt_bias**(-0.5)+eps) * diff_mt_bias 
-                norm_chang=np.linalg.norm(vec_chang)
-                if(norm_chang>TRUST_RAD):
-                    vec_chang=TRUST_RAD/norm_chang*vec_chang
-                
-                self.xyzs=self.xyzs+vec_chang
-                self.prev_grad=copy.deepcopy(self.grad)
-
-                self.update_xyzs_strs()
-                self.Method.grad("!result")
-                self.Method.read_grad() 
-        elif 0:
-            init_xyzs=copy.deepcopy(self.xyzs)
-            #optimistic ADAM
-            self.mt = b1*self.mt + (1-b1)*self.grad
-            self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)
-            mt_bias=1/(1-b1**(self.settings["step"]+1))*self.mt
-            vt_bias=1/(1-b2**(self.settings["step"]+1))*self.vt
-            
-            vec_chang=-eta*(vt_bias**(-0.5)+eps) * mt_bias
-            norm_chang=np.linalg.norm(vec_chang)
-            if(norm_chang>TRUST_RAD):
-                vec_chang=TRUST_RAD/norm_chang*vec_chang
-            self.xyzs=self.xyzs+vec_chang
-            #rotating correction
-            
-            self.update_xyzs_strs()
-            self.Method.grad("!result")
-            self.Method.read_grad() 
+            self.Method.read_grad()
             self.grad, maxgrad=self.get_grad()
             self.mirror()
-            self.alter_grad()
-            
-            self.mt_r = b1*self.mt_r + (1-b1)*self.grad
-            self.vt_r = b2*self.vt_r + (1-b2)*np.sum(self.grad*self.grad)
-            
-            mt_r_bias=1/(1-b1**(self.settings["step"]+1))*self.mt_r
-            vt_r_bias=1/(1-b2**(self.settings["step"]+1))*self.vt_r
-
-            vec_chang=-eta_r*(vt_r_bias**(-0.5)+eps) * mt_r_bias
-            norm_chang=np.linalg.norm(vec_chang)
-            if(norm_chang>TRUST_RAD):
-                vec_chang=TRUST_RAD/norm_chang*vec_chang
-
-            self.xyzs==init_xyzs+vec_chang
-
-            self.update_xyzs_strs()
-            self.Method.grad("!result")
-            self.Method.read_grad() 
+            self.Optimizer.broyden_step_after_calc_grad()
         else:#GD
             self.apply_grad()
             self.update_xyzs_strs()
@@ -876,7 +881,7 @@ if __name__ == "__main__":
     parser.add_argument("-tf", "--threshold-force", type=float, default=0.00004,dest="threshold_force", help="that threshold is converged when max force on optimizing bonds less than its value. Default: 0.00004")
     parser.add_argument("-tr", "--threshold-rel", type=float, default=8.,dest="threshold_rel", help="that threshold is converged when max force on optimizing bonds divided by mean force on unconstrained bonds less then its value. Default: 8")
     parser.add_argument("-mc", "--mirror-coef", type=float, default=1.,dest="mirror_coef", help="The projection of the force at reflection of the longitudinal component relative to the phase vector is multiplied by this value. A decrease leads to a decrease in velocity, while an increase can cause oscillations near the transition state. Default: 1")
-    parser.add_argument("--verbose",const=True, default=False,action='store_const', help="print output")
+    parser.add_argument("--verbose",const=True, default=True,action='store_const', help="print output")
     parser.add_argument("-s", "--steps", type=int, default=2000, help="maximum number of steps that allowed to optimize TS. Default: 2000")
     parser.add_argument("-p", "--program", default="xtb",help="program that used for gradient calculation and constraint optimization. \"xtb\" or \"orca\". Default: \"xtb\"")
     parser.add_argument("-xfc","--xtb-force-consant",type=float,default=6.,dest="xfc",help="if using xtb that force constant is used in control file. Default: 6")
