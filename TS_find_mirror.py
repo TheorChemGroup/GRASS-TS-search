@@ -237,11 +237,11 @@ class usingMethod:
             job.extend(["%geom\n", "Constraints\n"])
             for constrain in constrains:
                 if constrain[0]=="bond":
-                    job.append("{B "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[2]}" +" C}\n")
+                    job.append("{B "+f"{constrain[1][0]-1} {constrain[1][1]-1}" +" C}\n")
                 elif constrain[0]=="angle":
-                    job.append("{A "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[1][2]-1} {constrain[2]}" +" C}\n")
+                    job.append("{A "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[1][2]-1}" +" C}\n")
                 elif constrain[0]=="dihedral":
-                    job.append("{D "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[1][2]-1} {constrain[1][3]-1} {constrain[2]}" +" C}\n")
+                    job.append("{D "+f"{constrain[1][0]-1} {constrain[1][1]-1} {constrain[1][2]-1} {constrain[1][3]-1}" +" C}\n")
                 else:
                     raise ValueError(f"Unknown constrain type: {constrain[0]}")
             job.extend(["end\n","end\n"])
@@ -254,6 +254,12 @@ class usingMethod:
         job.append(f'*xyz {self.settings["chrg"]} {self.settings["mult"]}\n')
         job.extend(xyzs_in)
         job.extend(["\n","*\n"])
+
+        all_remain_files=os.listdir()
+        for file in all_remain_files:
+            if not (file=="bonds_to_search" or file.endswith(".xyz") or os.path.isdir(file)):
+                os.remove(file)
+
         with open(jobname, "w+") as file:
             file.writelines(job)
         with open(os.path.join(self.settings["rpath"],"outfile.out"),"w+") as orcaout:
