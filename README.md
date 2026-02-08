@@ -82,6 +82,12 @@ Parameters:
 
 **Note:** You may use one or both convergence thresholds (-tf and/or -tr).
 
+You may prefer standard thresholds like rms and max gradient and displacement. These thresholds may be used that way:
+
+```
+python TS_find_mirror.py tests/da_test/to_opt.xyz -tm standard -tgmax 0.0002 -tgrms 0.00004 -tdmax 0.00018 -tdrms 0.0001
+```
+
 ORCA-specific example:
 ```
 python TS_find_mirror.py tests/da_test/to_opt.xyz -tf 0.0001 -p orca -s 500 -onp 8 -omm 1500 -OPATH /your/path/to/orca -oms "B3LYP ma-def2-TZVP"
@@ -100,24 +106,25 @@ python TS_find_mirror.py --help
 
 ## Python usage
 
-from TS_find_mirror import optTS, or from TS_find
 ```
 from TS_find_mirror import optTS #, or from TS_find
 
 optTS(xyz_path: str,
-    threshold_force: float=0, 
-    threshold_rel: float=0,
+    thresholds={"mode":"native",
+                "force": 0.001, 
+                "relative": 8},
     programm=dict(name="xtb"), 
     maxstep:int=7000, 
     print_output:bool=True)
 ```
 where:
 - `xyz_path` is path to xyz file 
-- `threshold_force=0` is threshold for force (maximum force along any bond from bonds_to_search must be less this value)
-- `threshold_rel=0` is threshold for relative excess of forces on  over the background (rel excess must be less this value)
+- `thresholds["mode"]` is mode of threcholds. May be `"native"` or `"standard"`
+- `thresholds["force"]=0.001` is threshold for force (maximum force along any bond from bonds_to_search must be less this value)
+- `thresholds["relative"]=8` is threshold for relative excess of forces on  over the background (rel excess must be less this value)
 - `maxstep=7000` is maximum number of steps. the search is interrupted if this value is reached
 - `print_output` is flag to print output
-- `threshold_rel` and `threshold_force` must exceed 0 if used. Recommended `threshold_rel`>5, `threshold_force`>0.00002, the less, the more accurately the TS will be found, but at the same time, the longer it will take to find it. If both `threshold_rel` and `threshold_force` is non-zero both thresholds must converged
+- `thresholds["relative"]` and `thresholds["force"]` must exceed 0 if used. Recommended `thresholds["relative"]`>5, `thresholds["force"]`>0.00002, the less, the more accurately the TS will be found, but at the same time, the longer it will take to find it. If both `thresholds["relative"]` and `thresholds["force"]` is non-zero both thresholds must converged
 
 
 # Tips and tricks

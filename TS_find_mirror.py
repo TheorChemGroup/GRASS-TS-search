@@ -269,17 +269,31 @@ class usingMethod:
 
         
 class optTS:
-    def __init__(self, xyz_path:str,threshold_force:float=0, threshold_rel:float=0, mirror_coef:float=1, program=dict(name="xtb"), mult=1, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True):
+    def __init__(self, xyz_path:str, thresholds={} , mirror_coef:float=1, program=dict(name="xtb"), mult=1, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True):
         cwd=os.getcwd()
         
         rpath=os.path.join(cwd, os.path.dirname(xyz_path))
         xyz_name=os.path.basename(xyz_path)
 
-        
-        if threshold_force==0 and threshold_rel==0:
-            print("please, enter threshold_force or (and) threshold_rel")
+        for thresholds_key in ["mode", "force", "relative", "rms_grad", "max_grad", "rms_displ", "max_displ"]:
+            if thresholds_key not in thresholds.keys():
+                thresholds[thresholds_key]=None
+
+        if thresholds["mode"]=="native":
+            if thresholds["force"]==None and thresholds["relative"]==None:
+                print("please, enter native thresholds (force or (and) relative)")
+                return
+        elif thresholds["mode"]=="standard":
+            if thresholds["rms_grad"]==None and thresholds["max_grad"]==None and thresholds["rms_displ"]==None and thresholds["max_displ"]==None:
+                print("please, enter at least one standard threshold (rms_grad, max_grad, rms_displ, max_displ)")
+                return
+        else:
+            print("please, enter mode (standard or native)")
             return
-        self.const_settings=dict(rpath=rpath,xyz_name=xyz_name,print_output=print_output, threshold_force=threshold_force,threshold_rel=threshold_rel,maxstep=int(maxstep),mult=mult, do_preopt=do_preopt,step_along=step_along)
+
+            
+
+        self.const_settings=dict(rpath=rpath,xyz_name=xyz_name,print_output=print_output, thresholds=thresholds,maxstep=int(maxstep),mult=mult, do_preopt=do_preopt,step_along=step_along)
         self.settings=dict(step=0,prev_dc=100,bond_reach_critical_len=True, mirror_coef=mirror_coef)
 
         #self.log("",os.path.join(self.const_settings["rpath"],"way_log.txt"))
@@ -346,9 +360,9 @@ class optTS:
         self.init_change_projections=copy.deepcopy(self.change_projections)
         
 
-        if self.const_settings["threshold_force"]=="auto":
-            self.const_settings["threshold_force"]=self.mean_force()
-            self.ifprint(f'because optimized cap is \"auto\", calculated threshold_force is {self.const_settings["threshold_force"]}')
+        if self.const_settings["thresholds"]["force"]=="auto":
+            self.const_settings["thresholds"]["force"]=self.mean_force()
+            self.ifprint(f'because optimized cap is \"auto\", calculated force threshold is {self.const_settings["thresholds"]["force"]}')
 
         self.not_completed=True
         self.proceed()
@@ -658,12 +672,6 @@ class optTS:
             g_norm=np.linalg.norm(self.grad[i])
             self.grad[i]=np.multiply((maxgrad/g_norm)**(strange_constant),self.grad[i])#Вот здесь при большом (около 1) strange_constant все едут примерно со скоростью max_grad (важно по сути только общее направление движения частей системы), а когда структура уже близка к стационарной точке (Strange_constant~=0) атомы двигаются так, как должны по градиенту
         
-
-    def apply_grad(self):
-        
-        for i in range(self.const_settings["nAtoms"]):
-            for j in range(3):
-                self.xyzs[i][j]-=self.grad[i][j]*self.coef_grad
     
     def update_xyzs_strs(self):
         self.Method.xyzs_strs=self.Method.xyzs_strs[:1]
@@ -692,6 +700,7 @@ class optTS:
         #    self.coef_grad=TRUST_RAD/maxgrad
             
         self.alter_grad()
+        vec_chang=None #to keep alive after  going from if-else
         if 1:
             #no_ADAM (rotational correction)
             self.mt = b1*self.mt + (1-b1)*self.grad#*self.coef_grad
@@ -750,7 +759,8 @@ class optTS:
                 #adam (rotational correction)
                 self.prev_grad=copy.deepcopy(self.grad)
                 
-                self.apply_grad()
+                vec_chang=-self.grad*self.coef_grad
+                self.xyzs=init_xyzs+vec_chang
                 self.update_xyzs_strs()
                 self.Method.grad("!result")
                 self.Method.read_grad()
@@ -812,41 +822,43 @@ class optTS:
             if(norm_chang>TRUST_RAD):
                 vec_chang=TRUST_RAD/norm_chang*vec_chang
 
-            self.xyzs==init_xyzs+vec_chang
+            self.xyzs=init_xyzs+vec_chang
 
             self.update_xyzs_strs()
             self.Method.grad("!result")
             self.Method.read_grad() 
         else:#GD
-            self.apply_grad()
+            vec_chang=self.grad*self.coef_grad
+            self.xyzs=init_xyzs+vec_chang
             self.update_xyzs_strs()
             self.Method.grad("!result")
             self.Method.read_grad()
         
+        self.diff=vec_chang
         self.settings["step"]+=1
-        '''if maxgrad<self.prev_maxgrad:
-            self.coef_grad*=1.01
-        elif maxgrad>self.prev_maxgrad:
-            self.coef_grad*=0.9
-            if self.coef_grad<0.4:
-                self.coef_grad=0.4
         
-        print(f"coef grad {self.coef_grad}")'''
         self.prev_maxgrad=maxgrad
         return maxgrad
         
-    def mean_force(self):
-        search_atoms=set()
-        for DoF in self.search_DoFs:
-            if DoF[0]=="b":
-                search_atoms.add(DoF[1])
-                search_atoms.add(DoF[2])
-            elif DoF[0]=="a":
-                search_atoms.add(DoF[1])
-                search_atoms.add(DoF[3])
-            elif DoF[0]=="d":
-                search_atoms.add(DoF[1])
-                search_atoms.add(DoF[4])
+    def mean_force(self, mode="excluding"):
+        search_atoms=set() #set of atoms excluded from mean force calculation 
+        if mode=="excluding":
+            for DoF in self.search_DoFs:
+                if DoF[0]=="b":
+                    search_atoms.add(DoF[1])
+                    search_atoms.add(DoF[2])
+                elif DoF[0]=="a":
+                    search_atoms.add(DoF[1])
+                    search_atoms.add(DoF[3])
+                elif DoF[0]=="d":
+                    search_atoms.add(DoF[1])
+                    search_atoms.add(DoF[4])
+        elif mode=="all":
+            pass #no atoms to exclude
+        else:
+            print(f"unknown mode of atoms including: {mode}")
+            return None
+
         sum_forces=0
         num_forces=0
         for i in range(1,self.const_settings["nAtoms"]+1):
@@ -857,20 +869,65 @@ class optTS:
         return sum_forces/num_forces if num_forces else 10000
     
     def check_thresholds_converged(self,proj_len:float):
-        threshold_template=lambda name,cur,target,conv:f'{name} threshold {"{:15.7f}".format(cur)} of {"{:15.7f}".format(target)}: \033{"[92m" if conv else "[91mnot "}converged\033[00m'
+        threshold_template=lambda name,cur,target,conv:f'\033[93m{name} threshold\033[00m {"{:15.7f}".format(cur)} of {"{:15.7f}".format(target)}: \033{"[92m" if conv else "[91mnot "}converged\033[00m'
         
         converged=True
-        if self.const_settings["threshold_force"]!=0:
-            cond=proj_len<=self.const_settings["threshold_force"]
-            self.ifprint(threshold_template("force   ",proj_len,self.const_settings["threshold_force"],cond))
-            converged &= cond
+        if self.const_settings["thresholds"]["mode"]=="native":
+            if self.const_settings["thresholds"]["force"]!=None:
+                cond=proj_len<=self.const_settings["thresholds"]["force"]
+                self.ifprint(threshold_template("force   ",proj_len,self.const_settings["thresholds"]["force"],cond))
+                converged &= cond
                 
-        if self.const_settings["threshold_rel"]!=0:
-            mean_not_opt=self.mean_force()
-            cur_threshold_rel=proj_len/mean_not_opt
-            cond=cur_threshold_rel<=self.const_settings["threshold_rel"]
-            self.ifprint(threshold_template("relative",cur_threshold_rel,self.const_settings["threshold_rel"],cond))
-            converged &= cond
+            if self.const_settings["thresholds"]["relative"]!=None:
+                mean_not_opt=self.mean_force()
+                cur_threshold_rel=proj_len/mean_not_opt
+                cond=cur_threshold_rel<=self.const_settings["thresholds"]["relative"]
+                self.ifprint(threshold_template("relative",cur_threshold_rel,self.const_settings["thresholds"]["relative"],cond))
+                converged &= cond
+
+        elif self.const_settings["thresholds"]["mode"]=="standard":
+            if self.const_settings["thresholds"]["max_grad"]!=None:
+                cond=proj_len<=self.const_settings["thresholds"]["max_grad"]
+                self.ifprint(threshold_template("max_grad ",proj_len,self.const_settings["thresholds"]["max_grad"],cond))
+                converged &= cond
+            
+            if self.const_settings["thresholds"]["rms_grad"]!=None:
+                mean_grad=0
+                for grad_n in self.grad:
+                    mean_grad+=np.dot(grad_n,grad_n)
+                mean_grad=np.sqrt(mean_grad)/self.const_settings["nAtoms"]
+                cond=mean_grad<=self.const_settings["thresholds"]["rms_grad"]
+                self.ifprint(threshold_template("rms_grad ",mean_grad,self.const_settings["thresholds"]["rms_grad"],cond))
+                converged &= cond
+            
+
+            if self.const_settings["thresholds"]["max_displ"]!=None:
+                max_displ=0
+                for diff_n in self.diff:
+                    max_displ=max(max_displ,np.linalg.norm(diff_n))
+                cond=max_displ<=self.const_settings["thresholds"]["max_displ"]
+                self.ifprint(threshold_template("max_displ",max_displ,self.const_settings["thresholds"]["max_displ"],cond))
+                converged &= cond
+            
+            if self.const_settings["thresholds"]["rms_displ"]!=None:
+                mean_displ=0
+                for diff_n in self.diff:
+                    mean_displ+=np.dot(diff_n,diff_n)
+                mean_displ=np.sqrt(mean_displ)/self.const_settings["nAtoms"]
+                    
+                cond=mean_displ<=self.const_settings["thresholds"]["rms_displ"]
+                self.ifprint(threshold_template("rms_displ",mean_displ,self.const_settings["thresholds"]["rms_displ"],cond))
+                converged &= cond
+            
+                
+                
+
+                
+
+
+                
+        
+
                
         return converged
     #~main loop fns
@@ -879,9 +936,13 @@ class optTS:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Method for finding TS by targeted bonds. You only need store bonds_to_search and <name>.xyz files to directory/ and then call that program', epilog="When using ORCA, it's need to export its folder to PATH, LD_LIBRARY_PATH. If using multiprocessoring (openmpi) it's need to export its folders lib/ to LD_LIBRARY_PATH and bin/ to PATH")
     parser.add_argument("xyz_path", type=str, help="xmol .xyz file with structure. File can be in any directory")
-    parser.add_argument("-tf", "--threshold-force", type=float, default=0.00004,dest="threshold_force", help="that threshold is converged when max force on optimizing bonds less than its value. Default: 0.00004")
-    parser.add_argument("-tr", "--threshold-rel", type=float, default=8.,dest="threshold_rel", help="that threshold is converged when max force on optimizing bonds divided by mean force on unconstrained bonds less then its value. Default: 8")
-    parser.add_argument("-mc", "--mirror-coef", type=float, default=1.,dest="mirror_coef", help="The projection of the force at reflection of the longitudinal component relative to the phase vector is multiplied by this value. A decrease leads to a decrease in velocity, while an increase can cause oscillations near the transition state. Default: 1")
+    parser.add_argument("-tm", "--threshold-mode", type=str, default="native",dest="threshold_mode", help="Mode of applied thresholds: \"standard\" (rms+max grad and displacement) or \"native\" (mean and relative force). default: \"native\"")
+    parser.add_argument("-tf", "--threshold-force", type=float, default=None,dest="threshold_force", help="that threshold is converged when max force on optimizing bonds less than its value. Default: 0.00004")
+    parser.add_argument("-tr", "--threshold-rel", type=float, default=None,dest="threshold_rel", help="that threshold is converged when max force on optimizing bonds divided by mean force on unconstrained bonds less then its value. Default: 8")
+    parser.add_argument("-tgmax", "--threshold-max-grad", type=float, default=None, dest="threshold_max_grad", help="standard maximum gadient threshold")
+    parser.add_argument("-tgrms", "--threshold-rms-grad", type=float, default=None, dest="threshold_rms_grad", help="standard root-mean square gadient threshold")
+    parser.add_argument("-tdmax", "--threshold-max-displ", type=float, default=None, dest="threshold_max_displ", help="standard maximum displacement threshold")
+    parser.add_argument("-tdrms", "--threshold-rms-displ", type=float, default=None, dest="threshold_rms_displ", help="standard root-mean square displacement threshold")
     parser.add_argument("--verbose",const=True, default=False,action='store_const', help="print output")
     parser.add_argument("-s", "--steps", type=int, default=2000, help="maximum number of steps that allowed to optimize TS. Default: 2000")
     parser.add_argument("-p", "--program", default="xtb",help="program that used for gradient calculation and constraint optimization. \"xtb\" or \"orca\". Default: \"xtb\"")
@@ -899,9 +960,7 @@ if __name__ == "__main__":
         exit(1)
     optTS(
           args.xyz_path, 
-          threshold_rel=args.threshold_rel, 
-          threshold_force=args.threshold_force, 
-          mirror_coef=1,
+          thresholds={"mode":args.threshold_mode,"relative":args.threshold_rel, "force":args.threshold_force, "max_grad":args.threshold_max_grad, "rms_grad":args.threshold_rms_grad, "max_displ":args.threshold_max_displ, "rms_displ":args.threshold_rms_displ}, 
           print_output=args.verbose,
           maxstep=args.steps, 
           program=dict(name=args.program, 
