@@ -269,7 +269,8 @@ class usingMethod:
 
         
 class optTS:
-    def __init__(self, xyz_path:str, thresholds={} , mirror_coef:float=1, program=dict(name="xtb"), mult=1, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True):
+    list_optimizers=["no_Adam", "optimistic_Adam", "Adam_1", "rot_Adam"]
+    def __init__(self, xyz_path:str, thresholds={} , mirror_coef:float=1, program=dict(name="xtb"), mult=1, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True, optimizer="no_Adam"):
         cwd=os.getcwd()
         
         rpath=os.path.join(cwd, os.path.dirname(xyz_path))
@@ -292,8 +293,10 @@ class optTS:
             return
 
             
+        if(optimizer not in optTS.list_optimizers):
+            self.ifprint("\033[91mWARN!\033[90m Gradient descent optimizer used")
 
-        self.const_settings=dict(rpath=rpath,xyz_name=xyz_name,print_output=print_output, thresholds=thresholds,maxstep=int(maxstep),mult=mult, do_preopt=do_preopt,step_along=step_along)
+        self.const_settings=dict(rpath=rpath,xyz_name=xyz_name,print_output=print_output, thresholds=thresholds,maxstep=int(maxstep),mult=mult, do_preopt=do_preopt,step_along=step_along, optimizer=optimizer)
         self.settings=dict(step=0,prev_dc=100,bond_reach_critical_len=True, mirror_coef=mirror_coef)
 
         #self.log("",os.path.join(self.const_settings["rpath"],"way_log.txt"))
@@ -532,7 +535,7 @@ class optTS:
         while self.not_completed:
             if self.settings["bond_reach_critical_len"]==True:
                 
-                self.Optimizer=0
+                
                 self.lens.clear()
                 self.ifprint("lens is clear")
                 self.atoms,self.xyzs=self.get_xyzs()
@@ -687,7 +690,7 @@ class optTS:
             
         self.alter_grad()
         vec_chang=None #to keep alive after  going from if-else
-        if 1:
+        if self.const_settings["optimizer"]=="no_Adam":
             #no_ADAM (rotational correction)
             self.mt = b1*self.mt + (1-b1)*self.grad#*self.coef_grad
             self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)#*self.coef_grad**2
@@ -715,7 +718,7 @@ class optTS:
             self.update_xyzs_strs()
             self.Method.grad("!result")
             self.Method.read_grad() 
-        elif 0:
+        elif self.const_settings["optimizer"]=="Adam_1":
             #ADAM (Egor idea)
             self.mt = b1*self.mt + (1-b1)*self.grad#*self.coef_grad
             self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)#*self.coef_grad**2
@@ -740,7 +743,7 @@ class optTS:
             self.Method.grad("!result")
             self.Method.read_grad() 
             
-        elif 0:
+        elif self.const_settings["optimizer"]=="rot_Adam":
             if(self.settings["step"]<1):
                 #adam (rotational correction)
                 self.prev_grad=copy.deepcopy(self.grad)
@@ -775,7 +778,7 @@ class optTS:
                 self.update_xyzs_strs()
                 self.Method.grad("!result")
                 self.Method.read_grad() 
-        elif 0:
+        elif self.const_settings["optimizer"]=="optimistic_adam":
             init_xyzs=copy.deepcopy(self.xyzs)
             #optimistic ADAM
             self.mt = b1*self.mt + (1-b1)*self.grad
@@ -918,7 +921,7 @@ class optTS:
 
 #------run------#
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Method for finding TS by targeted bonds. You only need store bonds_to_search and <name>.xyz files to directory/ and then call that program', epilog="When using ORCA, it's need to export its folder to PATH, LD_LIBRARY_PATH. If using multiprocessoring (openmpi) it's need to export its folders lib/ to LD_LIBRARY_PATH and bin/ to PATH")
+    parser = argparse.ArgumentParser(description='Method for finding TS by targeted bonds. You only need store bonds_to_search and <name>.xyz files to directory and then call that program', epilog="When using ORCA, it's need to export its folder to PATH, LD_LIBRARY_PATH. If using multiprocessoring (openmpi) it's need to export its folders lib/ to LD_LIBRARY_PATH and bin/ to PATH")
     parser.add_argument("xyz_path", type=str, help="xmol .xyz file with structure. File can be in any directory")
     parser.add_argument("-tm", "--threshold-mode", type=str, default="native",dest="threshold_mode", help="Mode of applied thresholds: \"standard\" (rms+max grad and displacement) or \"native\" (mean and relative force). default: \"native\"")
     parser.add_argument("-tf", "--threshold-force", type=float, default=None,dest="threshold_force", help="that threshold is converged when max force on optimizing bonds less than its value")
@@ -929,6 +932,7 @@ if __name__ == "__main__":
     parser.add_argument("-tdrms", "--threshold-rms-displ", type=float, default=None, dest="threshold_rms_displ", help="standard root-mean square displacement threshold")
     parser.add_argument("-sa", "--step-along", type=float, default=0, dest="step_along", help="first geometry change. Resulting change eqal to values from bonds_to_search in angstroems for bonds, radians for angles and diedrals multiplied by that value. Useful when starting point is minimum point")
     parser.add_argument("--verbose",const=True, default=False,action='store_const', help="print output")
+    parser.add_argument("-opt", "--optimizer", type=str, default=optTS.list_optimizers[0], dest="optimizer", help=f"must be from {optTS.list_optimizers}. Default: \"{optTS.list_optimizers[0]}\"")
     parser.add_argument("-s", "--steps", type=int, default=2000, dest="steps", help="maximum number of steps that allowed to optimize TS. Default: 2000")
     parser.add_argument("-p", "--program", default="xtb",help="program that used for gradient calculation and constraint optimization. \"xtb\" or \"orca\". Default: \"xtb\"")
     parser.add_argument("-xfc","--xtb-force-consant",type=float,default=6.,dest="xfc",help="if using xtb that force constant is used in control file. Default: 6")
@@ -949,6 +953,7 @@ if __name__ == "__main__":
           print_output=args.verbose,
           step_along=args.step_along,
           maxstep=args.steps, 
+          optimizer=args.optimizer,
           program=dict(name=args.program, 
                         method_str=args.method_str,
                         force_constant=args.xfc,
