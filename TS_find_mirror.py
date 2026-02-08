@@ -256,10 +256,20 @@ class usingMethod:
         job.extend(["\n","*\n"])
 
         all_remain_files=os.listdir()
-        for file in all_remain_files:
-            if not (file=="bonds_to_search" or file=="grad_log" or file.endswith(".xyz") or os.path.isdir(file)):
-                os.remove(file)
-
+        if len(all_remain_files)>0:
+            if not os.path.exists("opt_steps"):
+                os.mkdir("opt_steps")
+            step_folder_name=f"step_{len(os.listdir("opt_steps"))}"
+            
+            for file in all_remain_files:
+                if not (file=="bonds_to_search" or file=="grad_log" or file.endswith(".xyz") or os.path.isdir(file)):
+                    if file.endswith(".tmp"):
+                        os.remove(file)
+                    else:
+                        if not os.path.exists(os.path.join("opt_steps",step_folder_name)):
+                            os.mkdir(os.path.join("opt_steps",step_folder_name))
+                        os.rename(file, os.path.join("opt_steps", step_folder_name, file))
+                    
         with open(jobname, "w+") as file:
             file.writelines(job)
         with open(os.path.join(self.settings["rpath"],"outfile.out"),"w+") as orcaout:
@@ -270,7 +280,7 @@ class usingMethod:
         
 class optTS:
     list_optimizers=["no_Adam", "optimistic_Adam", "Adam_1", "rot_Adam"]
-    def __init__(self, xyz_path:str, thresholds={} , mirror_coef:float=1, program=dict(name="xtb"), mult=1, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True, optimizer="no_Adam"):
+    def __init__(self, xyz_path:str, thresholds={} , mirror_coef:float=1, program=dict(name="xtb"), mult=1, ppo=True, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True, optimizer="no_Adam"):
         cwd=os.getcwd()
         
         rpath=os.path.join(cwd, os.path.dirname(xyz_path))
@@ -294,10 +304,10 @@ class optTS:
 
             
         if(optimizer not in optTS.list_optimizers):
-            self.ifprint("\033[91mWARN!\033[90m Gradient descent optimizer used")
+            self.ifprint("\033[91mWARN!\033[00m Gradient descent optimizer used")
 
-        self.const_settings=dict(rpath=rpath,xyz_name=xyz_name,print_output=print_output, thresholds=thresholds,maxstep=int(maxstep),mult=mult, do_preopt=do_preopt,step_along=step_along, optimizer=optimizer)
-        self.settings=dict(step=0,prev_dc=100,bond_reach_critical_len=True, mirror_coef=mirror_coef)
+        self.const_settings=dict(rpath=rpath,xyz_name=xyz_name,print_output=print_output, thresholds=thresholds,maxstep=int(maxstep),mult=mult, do_preopt=do_preopt,step_along=step_along, optimizer=optimizer, ppo=ppo, step_shift=(1 if (ppo and do_preopt and program["name"]=="orca") else 0) + 1 if do_preopt else 0)
+        self.settings=dict(step=1,prev_dc=100,bond_reach_critical_len=True, mirror_coef=mirror_coef)
 
         #self.log("",os.path.join(self.const_settings["rpath"],"way_log.txt"))
 
@@ -324,7 +334,8 @@ class optTS:
         self.xyzs_strs=[]#strings of atom xyzs (format: "A X Y Z\n", A - element symbol, X,Y,Z - cartesian coordinates)
         self.xyzs_strs=self.read_file(self.const_settings["xyz_name"])
         self.const_settings["nAtoms"]=int(self.xyzs_strs[0])
-        
+        self.const_settings["program_name"]=program["name"]
+
         if program["name"]=="xtb":
             dict_to_uM=dict(rpath=self.const_settings["rpath"],
                             chrg=self.const_settings["chrg"],
@@ -344,11 +355,25 @@ class optTS:
                             mult=self.const_settings["mult"],
                             solvent=self.const_settings["solvent"],
                             nAtoms=self.const_settings["nAtoms"])
+            if self.const_settings["ppo"] and self.const_settings["do_preopt"]:
+                dict_to_uM_xtb=dict(rpath=self.const_settings["rpath"], #for pre-preoptimization (change DoFs with harmonic constraints) 
+                                chrg=self.const_settings["chrg"],
+                                uhf=self.const_settings["mult"]-1,
+                                solvent=self.const_settings["solvent"],
+                                nAtoms=self.const_settings["nAtoms"],
+
+                                force_constant=program["force_constant"] if "force_constant" in program.keys() else 2,
+                                acc=program["acc"] if "acc" in program.keys() else 0.05)
         else:
             raise ValueError(f'Unknown method {program["name"]}')
 
+        if self.const_settings["ppo"] and self.const_settings["do_preopt"] and program["name"]=="orca":
+            self.Method_ppo=usingMethod("xtb",dict_to_uM_xtb)
+            self.Method_ppo.read_xyz(self.const_settings["xyz_name"])
+        
         self.Method=usingMethod(program["name"],dict_to_uM)
         self.Method.read_xyz(self.const_settings["xyz_name"])
+
         self.log_xyz() 
 
         self.change_projections={}
@@ -442,6 +467,20 @@ class optTS:
                 file_strs.append(line)
                 line=file.readline()
         return file_strs
+    
+    @staticmethod
+    def rm_rf(path):
+        if not os.path.exists(path):
+            print(f'\033[93mWARN!\033[00m Path \"{path}\" to delete not exist')
+            return
+        if os.path.isfile(path):
+            os.remove(path)
+            return
+    
+        contents=os.listdir(path)
+        for file in contents:
+            optTS.rm_rf(os.path.join(path,file))
+        os.rmdir(path)
     #~rw
 
     #init fns
@@ -512,11 +551,21 @@ class optTS:
     
     def move_along(self,DoF_value,DoF_type,i):
         print((DoF_value,i,self.phases_vec))
-        DoF_value*=1+self.const_settings["step_along"]*self.phases_vec[i]
-        print(DoF_value)
-        if DoF_type=="angle":
+        
+        if DoF_type=="bond":
+            DoF_value+=self.const_settings["step_along"]*self.phases_vec[i]
+            DoF_value=max(DoF_value,0.7)#even with 0.7 this possibly break search
+            if DoF_value < 1:
+                self.ifprint("\033[91mWARN!\033[00m Bond is less 1A after step along. This usually inflicts errors in TS search if that bond don't contain hydrogen atom")
+        
+        elif DoF_type=="angle":
+            DoF_value+=57.3*self.const_settings["step_along"]*self.phases_vec[i]
             DoF_value=min(DoF_value,179.9)
+            DoF_value=max(DoF_value,0)
+
         elif DoF_type=="dihedral":
+            DoF_value+=57.3*self.const_settings["step_along"]*self.phases_vec[i]
+            
             while DoF_value>180:
                 DoF_value-=360
             while DoF_value<-180:
@@ -535,7 +584,14 @@ class optTS:
         while self.not_completed:
             if self.settings["bond_reach_critical_len"]==True:
                 
+                if self.const_settings["program_name"]=="orca":
+                   optTS.rm_rf("opt_steps")
                 
+                all_remain_files=os.listdir()
+                for file in all_remain_files:
+                    if not (file=="bonds_to_search" or file.endswith(".xyz") or os.path.isdir(file)):
+                        os.remove(file)
+
                 self.lens.clear()
                 self.ifprint("lens is clear")
                 self.atoms,self.xyzs=self.get_xyzs()
@@ -564,8 +620,18 @@ class optTS:
                             const_type="dihedral"                    
 
                         self.constrain_list.append([const_type,DoF_atoms, self.move_along(DoF_value,const_type,i)])
-                    self.Method.opt_constrain(self.const_settings["xyz_name"],self.constrain_list)
+                    if not self.const_settings["ppo"] and self.const_settings["program_name"]=="orca":
+                        self.ifprint("\033[91mWARN!\033[00m You have turned pre-preoptimization off. Due to lack of harmonic constraints in orca, step_along is impossible and TS search will start from optnmized but unbiased geometry\n")
+                    
+                    if self.const_settings["ppo"] and self.const_settings["program_name"]=="orca":
+                        self.Method_ppo.opt_constrain(self.const_settings["xyz_name"], self.constrain_list)
+                        self.settings["step"]+=1
+                        self.Method.opt_constrain("xtbopt.xyz", self.constrain_list)
+                    else:
+                        self.Method.opt_constrain(self.const_settings["xyz_name"],self.constrain_list)
+                    
                     self.Method.read_xyz("!result")
+                    self.settings["step"]+=1
                 
                 self.atoms, self.xyzs=self.get_xyzs()
                 self.log_xyz()
@@ -694,15 +760,15 @@ class optTS:
             #no_ADAM (rotational correction)
             self.mt = b1*self.mt + (1-b1)*self.grad#*self.coef_grad
             self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)#*self.coef_grad**2
-            mt_bias=1/(1-b1**(self.settings["step"]+1))*self.mt
-            vt_bias=(1-b2**(self.settings["step"]+1))*self.vt
+            mt_bias=1/(1-b1**(self.settings["step"]-self.const_settings["step_shift"]))*self.mt
+            vt_bias=(1-b2**(self.settings["step"]-self.const_settings["step_shift"]))*self.vt
             
-            if(self.settings["step"]>0):
+            if self.settings["step"]-self.const_settings["step_shift"] > 1:
                 cur_diff_mt = -self.prev_grad+self.grad
                 self.diff_mt = b1_diff*self.diff_mt + (1-b1_diff)*cur_diff_mt
                 self.diff_vt = b2*self.diff_vt + (1-b2)*np.sum(cur_diff_mt*cur_diff_mt)
-                diff_mt_bias=1/(1-b1_diff**(self.settings["step"]+1))*self.diff_mt
-                diff_vt_bias=(1-b2**(self.settings["step"]+1))*self.diff_vt
+                diff_mt_bias=1/(1-b1_diff**(self.settings["step"]-self.const_settings["step_shift"]))*self.diff_mt
+                diff_vt_bias=(1-b2**(self.settings["step"]-self.const_settings["step_shift"]))*self.diff_vt
 
                 vec_chang=-eta*(vt_bias+eps)**(-0.5) * mt_bias - eta_diff * mgsin_sqr * (diff_vt_bias+eps)**(-0.5)*diff_mt_bias
             else:
@@ -722,10 +788,10 @@ class optTS:
             #ADAM (Egor idea)
             self.mt = b1*self.mt + (1-b1)*self.grad#*self.coef_grad
             self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)#*self.coef_grad**2
-            mt_bias=1/(1-b1**(self.settings["step"]+1))*self.mt
-            vt_bias=1/(1-b2**(self.settings["step"]+1))*self.vt
+            mt_bias=1/(1-b1**(self.settings["step"]-self.const_settings["step_shift"]))*self.mt
+            vt_bias=1/(1-b2**(self.settings["step"]-self.const_settings["step_shift"]))*self.vt
             
-            if(self.settings["step"]>0):
+            if(self.settings["step"]-self.const_settings["step_shift"]>1):
                 v_c_1=-eta*(vt_bias**(-0.5)+eps) * mt_bias
                 vec_chang=v_c_1 +0.3*(v_c_1+ eta * (self.vt_bias_prev**(-0.5)+eps)*self.mt_bias_prev)
             else:
@@ -744,7 +810,7 @@ class optTS:
             self.Method.read_grad() 
             
         elif self.const_settings["optimizer"]=="rot_Adam":
-            if(self.settings["step"]<1):
+            if(self.settings["step"]-self.const_settings["step_shift"]<2):
                 #adam (rotational correction)
                 self.prev_grad=copy.deepcopy(self.grad)
                 
@@ -761,11 +827,11 @@ class optTS:
                 self.diff_mt = b1_diff*self.diff_mt + (1-b1_diff)*cur_diff_mt
                 self.diff_vt = b2*self.diff_vt + (1-b2)*np.sum(cur_diff_mt*cur_diff_mt)
 
-                mt_bias=1/(1-b1**(self.settings["step"]))*self.mt
-                vt_bias=1/(1-b2**(self.settings["step"]))*self.vt
+                mt_bias=1/(1-b1**(self.settings["step"]-self.const_settings["step_shift"]))*self.mt
+                vt_bias=1/(1-b2**(self.settings["step"]-self.const_settings["step_shift"]))*self.vt
 
-                diff_mt_bias=1/(1-b1_diff**(self.settings["step"]))*self.diff_mt
-                diff_vt_bias=1/(1-b2**(self.settings["step"]))*self.diff_vt
+                diff_mt_bias=1/(1-b1_diff**(self.settings["step"]-self.const_settings["step_shift"]))*self.diff_mt
+                diff_vt_bias=1/(1-b2**(self.settings["step"]-self.const_settings["step_shift"]))*self.diff_vt
 
                 vec_chang=-eta*(vt_bias**(-0.5)+eps) * mt_bias - eta_diff * mgsin_sqr * (diff_vt_bias**(-0.5)+eps) * diff_mt_bias 
                 norm_chang=np.linalg.norm(vec_chang)
@@ -783,8 +849,8 @@ class optTS:
             #optimistic ADAM
             self.mt = b1*self.mt + (1-b1)*self.grad
             self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)
-            mt_bias=1/(1-b1**(self.settings["step"]+1))*self.mt
-            vt_bias=1/(1-b2**(self.settings["step"]+1))*self.vt
+            mt_bias=1/(1-b1**(self.settings["step"]-self.const_settings["step_shift"]))*self.mt
+            vt_bias=1/(1-b2**(self.settings["step"]-self.const_settings["step_shift"]))*self.vt
             
             vec_chang=-eta*(vt_bias**(-0.5)+eps) * mt_bias
             norm_chang=np.linalg.norm(vec_chang)
@@ -803,8 +869,8 @@ class optTS:
             self.mt_r = b1*self.mt_r + (1-b1)*self.grad
             self.vt_r = b2*self.vt_r + (1-b2)*np.sum(self.grad*self.grad)
             
-            mt_r_bias=1/(1-b1**(self.settings["step"]+1))*self.mt_r
-            vt_r_bias=1/(1-b2**(self.settings["step"]+1))*self.vt_r
+            mt_r_bias=1/(1-b1**(self.settings["step"]-self.const_settings["step_shift"]))*self.mt_r
+            vt_r_bias=1/(1-b2**(self.settings["step"]-self.const_settings["step_shift"]))*self.vt_r
 
             vec_chang=-eta_r*(vt_r_bias**(-0.5)+eps) * mt_r_bias
             norm_chang=np.linalg.norm(vec_chang)
@@ -932,11 +998,13 @@ if __name__ == "__main__":
     parser.add_argument("-tdrms", "--threshold-rms-displ", type=float, default=None, dest="threshold_rms_displ", help="standard root-mean square displacement threshold")
     parser.add_argument("-sa", "--step-along", type=float, default=0, dest="step_along", help="first geometry change. Resulting change eqal to values from bonds_to_search in angstroems for bonds, radians for angles and diedrals multiplied by that value. Useful when starting point is minimum point")
     parser.add_argument("--verbose",const=True, default=False,action='store_const', help="print output")
+    parser.add_argument("-nopo",const=True, default=False, dest="nopreopt", action='store_const', help="disable preoptimization. This is usually bad decision due to variety of forces in non-optimized geometry. With -nopo -noppo is insufficient (and also turned on)")
+    parser.add_argument("-noppo",const=True,default=False, dest="noppo", action='store_const', help="disable pre-preoptimization in ORCA. This action also disables step_along due to lack of harmonic constraints in ORCA")
     parser.add_argument("-opt", "--optimizer", type=str, default=optTS.list_optimizers[0], dest="optimizer", help=f"must be from {optTS.list_optimizers}. Default: \"{optTS.list_optimizers[0]}\"")
     parser.add_argument("-s", "--steps", type=int, default=2000, dest="steps", help="maximum number of steps that allowed to optimize TS. Default: 2000")
     parser.add_argument("-p", "--program", default="xtb",help="program that used for gradient calculation and constraint optimization. \"xtb\" or \"orca\". Default: \"xtb\"")
-    parser.add_argument("-xfc","--xtb-force-consant",type=float,default=6.,dest="xfc",help="if using xtb that force constant is used in control file. Default: 6")
-    parser.add_argument("-acc","--acc",type=float,default=0.05, dest="acc",help="if using xtb that acc is used. Default: 0.05")
+    parser.add_argument("-xfc","--xtb-force-consant",type=float,default=6.,dest="xfc",help="if using xtb that force constant is used in control file. Default: 6. Used in ORCA calculations if -noppo not used")
+    parser.add_argument("-acc","--acc",type=float,default=0.05, dest="acc",help="if using xtb that acc is used. Default: 0.05. Used in ORCA calculations if -noppo not used")
     parser.add_argument("-oms","--orca-method-string", type=str, default="B3LYP def2-SVP",dest="method_str", help="method string on the top of orca file. Default: \"B3LYP def2-SVP\"")
     parser.add_argument("-OPATH", "--ORCA-PATH", type=str, default="", dest="OPATH",help="PATH of ORCA. Is necessary for multiprocessor calculations")
     parser.add_argument("-onp","--orca-number-processors", type=int, default=1,dest="nprocs", help="number of processors that using in ORCA work. Default: 1")
@@ -951,6 +1019,8 @@ if __name__ == "__main__":
           args.xyz_path, 
           thresholds={"mode":args.threshold_mode,"relative":args.threshold_rel, "force":args.threshold_force, "max_grad":args.threshold_max_grad, "rms_grad":args.threshold_rms_grad, "max_displ":args.threshold_max_displ, "rms_displ":args.threshold_rms_displ}, 
           print_output=args.verbose,
+          do_preopt=not args.nopreopt,
+          ppo = not args.noppo,
           step_along=args.step_along,
           maxstep=args.steps, 
           optimizer=args.optimizer,

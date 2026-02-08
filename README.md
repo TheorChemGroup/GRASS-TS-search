@@ -88,6 +88,8 @@ You may prefer standard thresholds like rms and max gradient and displacement. T
 python TS_find_mirror.py tests/da_test/to_opt.xyz -tm standard -tgmax 0.0002 -tgrms 0.00004 -tdmax 0.00018 -tdrms 0.0001
 ```
 
+By default method uses pre-optimization with all DoFs fixed (and biased if `-sa` is used). You may turn it off by using `-nopo`, but it's usually bad decision. Methods is working with assumation that all forces in structure casued by it's  
+
 ORCA-specific example:
 ```
 python TS_find_mirror.py tests/da_test/to_opt.xyz -tf 0.0001 -p orca -s 500 -onp 8 -omm 1500 -OPATH /your/path/to/orca -oms "B3LYP ma-def2-TZVP"
@@ -98,6 +100,8 @@ ORCA-specific parameters:
 * -omm, --orca-memory - Memory per processor (MB)
 * -OPATH, --ORCA-PATH - Path to ORCA executable (required when -onp > 1)
 * -oms, --orca-method-string - Method and basis set string (written after ! in ORCA input file)
+
+Orca lacks of harmonic constraints, therefore, xtb is used to biasing starting geometry. You may turn this off by `-noppo` (with turning off starting geometry biasing)  
 
 All other parametres may be shown by running
 ```
