@@ -195,7 +195,7 @@ class usingMethod:
     #~xtb
     #orca
     def __get_energy_orca(self):
-        return float(self.grad_strs[7])#в 8-й строке находится значение энергии
+        return float(self.grad_strs[7])#8-th string contains energy
     
     def __extract_AB_dir_orca(self, num_A, num_B):
         vec_A=self.xyzs_strs[num_A+1].split()[1:]
@@ -210,7 +210,7 @@ class usingMethod:
         return res
     
     def __extractGradient_orca(self, num):
-        grad_begin=11#12-я строка - X координата градиента первого атома
+        grad_begin=11#12-th string is X coordinate of 1-st atom gradient
         grad_vec=[]
         for i in range(grad_begin+(num-1)*3, grad_begin+(num)*3):
             grad_vec.append(float(self.grad_strs[i]))
@@ -257,7 +257,7 @@ class usingMethod:
 
         all_remain_files=os.listdir()
         for file in all_remain_files:
-            if not (file=="bonds_to_search" or file.endswith(".xyz") or os.path.isdir(file)):
+            if not (file=="bonds_to_search" or file=="grad_log" or file.endswith(".xyz") or os.path.isdir(file)):
                 os.remove(file)
 
         with open(jobname, "w+") as file:
@@ -301,12 +301,12 @@ class optTS:
         self.initial_cwd = os.getcwd()
         os.chdir(self.const_settings["rpath"])
     
-        self.logname=os.path.join(self.initial_cwd,"grad_log")
+        self.logname=os.path.join(self.const_settings["rpath"],"grad_log")
     
         with open(self.logname,"w+") as file:
             file.write( (datetime.datetime.now()).strftime("%Y m%m d%d %H:%M:%S\n") )
     
-        self.search_DoFs=[] # список СС, для которых ищется ПС
+        self.search_DoFs=[] # list of DoFs searched for TS
         self.ifprint("reading inputs\n")
     
         self.read_DoFs()
@@ -314,11 +314,11 @@ class optTS:
 
         self.log_xyz("new") 
         
-        #Все длины, над которыми производятся операции - в ангстремах
-        self.init_DoFs={}#[(a, b)] (при этом a<b - номера атомов) - начальные длины связей. При разваливании ПС изменяются так, чтобы меньше разваливались (растягиваются при критичном сжатии, сжимаются при критичном растяжении..)
-        self.lens={}#[(a, b)] текущие длины связей (к которым применяется изменение длины по градиенту)
+        #All lengths are in angstroems
+        self.init_DoFs={}#[(a, b)] (a<b - indicies if atoms) - strating DoFs
+        self.lens={}#[(a, b)] current DoFs (Changing during the optimization)
     
-        self.xyzs_strs=[]#строки координат атомов (вида "A X Y Z\n", A - символ элемента, X,Y,Z - его координаты)
+        self.xyzs_strs=[]#strings of atom xyzs (format: "A X Y Z\n", A - element symbol, X,Y,Z - cartesian coordinates)
         self.xyzs_strs=self.read_file(self.const_settings["xyz_name"])
         self.const_settings["nAtoms"]=int(self.xyzs_strs[0])
         
@@ -399,7 +399,7 @@ class optTS:
         return min((length/self.const_settings["nDoFs"]+10*length**2+1000*length**3)*2, cap)
         
     
-    def produce_new_vector(self,changes):#процесс Грамма-Шмидта
+    def produce_new_vector(self,changes):#Gramm-Schmidt
         init=copy.deepcopy(changes)
         self.ifprint(init)
         for vector in self.change_projections["vn_for_change"]:
@@ -454,7 +454,7 @@ class optTS:
             self.const_settings["solvent"]=bonds.readline().split()[0]
             line=bonds.readline()
             while line != "":
-                if line.startswith("b") or line.startswith("a") or line.startswith("d"):#это СС
+                if line.startswith("b") or line.startswith("a") or line.startswith("d"):#line desribing a DoF
                     line_split=line.split()
                     if line_split[0]=='b':
                         if int(line_split[1])<int(line_split[2]):
@@ -474,7 +474,7 @@ class optTS:
                 
                 line=bonds.readline()
     
-    def find_reac_type_by_phases__and__measure_init_DoFs(self):#именно то, что написано на упаковке, более короткого, но осмысленного названия я придумать не смог
+    def find_reac_type_by_phases__and__measure_init_DoFs(self):#what an obvious name
         RAD2DEG=57.295779513
         init_DoFs={}
         reac_type=2
@@ -502,18 +502,7 @@ class optTS:
 
         self.change_projections["signs"]=[]
         self.phases_vec=np.multiply(1/np.linalg.norm(phases_vec),phases_vec)
-        '''if reac_type==2:#как Дильс-Альдер   
-            self.change_projections["signs"].append(1)
-            for i in range(1,len(phases_vec)):
-                self.change_projections["signs"].append(-1)
-            self.phases_vec=self.change_projections["vn_for_change"][0]
-        elif reac_type==1:#как sn2 
-            self.change_projections["vn_for_change"][1]=self.produce_new_vector(phases_vec)
-            self.change_projections["signs"].append(-1)
-            self.change_projections["signs"].append(1)
-            for i in range(2,len(phases_vec)):
-                self.change_projections["signs"].append(-1)
-            self.phases_vec=np.multiply(1/np.linalg.norm(phases_vec),phases_vec)'''
+        
         self.ifprint(self.phases_vec)
         self.ifprint(init_DoFs)
         return init_DoFs
@@ -606,7 +595,6 @@ class optTS:
                     self.log(string_curve, "way_log.txt")
 
                 if proj_len<self.least_force:
-                    print(self.least_force)
                     self.least_force=proj_len
                     self.best_xyzs_strs=copy.deepcopy(self.Method.xyzs_strs)
                 self.not_completed = not self.check_thresholds_converged(proj_len)
@@ -627,15 +615,13 @@ class optTS:
                 
                 if self.not_completed:
                     self.log_xyz()
-
-            if self.not_completed:
-                self.ifprint(f'\nstep {self.settings["step"]}')
-
-            else:
-                self.log(f"completed at {(datetime.datetime.now()).strftime('%Y m%m d%d %H:%M:%S')}\n",self.logname)
-                with open(os.path.join(self.const_settings["rpath"],"result.xyz"),"w+") as file:
-                    file.writelines(self.best_xyzs_strs)
-            
+                    self.log(f'\nstep {self.settings["step"]}\n',self.logname)
+                    self.log(str(self.grad)+"\n",self.logname)
+                    self.ifprint(f'\nstep {self.settings["step"]}')
+                
+        self.log(f"completed at {(datetime.datetime.now()).strftime('%Y m%m d%d %H:%M:%S')}\n",self.logname)
+        with open(os.path.join(self.const_settings["rpath"],"result.xyz"),"w+") as file:
+            file.writelines(self.best_xyzs_strs)
         os.chdir(self.initial_cwd)
 
     def get_xyzs(self):
@@ -664,13 +650,13 @@ class optTS:
             maxgrad=max(maxgrad,g_norm)
             mingrad=min(mingrad,g_norm)
 
-        strange_constant=1-(mingrad/maxgrad)**0.1#Эта величина 0..1. Чтобы вначале, когда mingrad/maxgrad большой - все атомы шевелились примерно одинаково быстро, а потом, когда он уменьшается - с той скоростью, с которой должны
-        strange_constant=strange_constant**1.3#В целом, она улучшает сходимость реакций между 2 большими молекулами, помогая им повернуться/занять "молекулярно(т.е. в масштабе больших фрагментов)-правильное" положение
-        #Физический смыcл как таковой в целом отсутствует - только алгоритмический // strange constant is strongly related to strange magick
+        strange_constant=1-(mingrad/maxgrad)**0.1#0..1 value. When mingrad/maxgrad ratio is big (in the firct steps of optimization) all atoms are moving at about same speed, after lowering that ratio atoms start to move at speed proportional to gradient
+        strange_constant=strange_constant**1.3#In general, this value improves convergence of reactions between big molecules, helping them to reach "molecular TS" (when bonds are wrong but remaining big parts of system are in semi-correct positions to TS)
+        #Strange constant lacks of any physical representation, its only algoritmical trick // strange constant is strongly related to strange magick
         self.ifprint(f"strangeC {strange_constant}")
         for i in range(self.const_settings["nAtoms"]):
             g_norm=np.linalg.norm(self.grad[i])
-            self.grad[i]=np.multiply((maxgrad/g_norm)**(strange_constant),self.grad[i])#Вот здесь при большом (около 1) strange_constant все едут примерно со скоростью max_grad (важно по сути только общее направление движения частей системы), а когда структура уже близка к стационарной точке (Strange_constant~=0) атомы двигаются так, как должны по градиенту
+            self.grad[i]=np.multiply((maxgrad/g_norm)**(strange_constant),self.grad[i])#Here when strange constant is big (about 1) all atoms have same velocity as the fastest one (with gradient eqal to max_grad) max_grad (only big parts movement is important), When structure is close to stationary point (Strange_constant~=0) gradient is unaffected by strange_constant
         
     
     def update_xyzs_strs(self):
@@ -828,8 +814,8 @@ class optTS:
             self.Method.grad("!result")
             self.Method.read_grad() 
         else:#GD
-            vec_chang=self.grad*self.coef_grad
-            self.xyzs=init_xyzs+vec_chang
+            vec_chang=-self.grad*self.coef_grad
+            self.xyzs+=vec_chang
             self.update_xyzs_strs()
             self.Method.grad("!result")
             self.Method.read_grad()
@@ -870,12 +856,14 @@ class optTS:
     
     def check_thresholds_converged(self,proj_len:float):
         threshold_template=lambda name,cur,target,conv:f'\033[93m{name} threshold\033[00m {"{:15.7f}".format(cur)} of {"{:15.7f}".format(target)}: \033{"[92m" if conv else "[91mnot "}converged\033[00m'
-        
+        threshold_template_no_color=lambda name,cur,target,conv:f'{name} threshold {"{:15.7f}".format(cur)} of {"{:15.7f}".format(target)}: { ""if conv else "not "}converged\n'
+
         converged=True
         if self.const_settings["thresholds"]["mode"]=="native":
             if self.const_settings["thresholds"]["force"]!=None:
                 cond=proj_len<=self.const_settings["thresholds"]["force"]
                 self.ifprint(threshold_template("force   ",proj_len,self.const_settings["thresholds"]["force"],cond))
+                self.log(threshold_template_no_color("force   ",proj_len,self.const_settings["thresholds"]["force"],cond), self.logname)
                 converged &= cond
                 
             if self.const_settings["thresholds"]["relative"]!=None:
@@ -883,12 +871,14 @@ class optTS:
                 cur_threshold_rel=proj_len/mean_not_opt
                 cond=cur_threshold_rel<=self.const_settings["thresholds"]["relative"]
                 self.ifprint(threshold_template("relative",cur_threshold_rel,self.const_settings["thresholds"]["relative"],cond))
+                self.log(threshold_template_no_color("relative",cur_threshold_rel,self.const_settings["thresholds"]["relative"],cond), self.logname)
                 converged &= cond
 
         elif self.const_settings["thresholds"]["mode"]=="standard":
             if self.const_settings["thresholds"]["max_grad"]!=None:
                 cond=proj_len<=self.const_settings["thresholds"]["max_grad"]
                 self.ifprint(threshold_template("max_grad ",proj_len,self.const_settings["thresholds"]["max_grad"],cond))
+                self.log(threshold_template_no_color("max_grad ",proj_len,self.const_settings["thresholds"]["max_grad"],cond), self.logname)
                 converged &= cond
             
             if self.const_settings["thresholds"]["rms_grad"]!=None:
@@ -898,6 +888,7 @@ class optTS:
                 mean_grad=np.sqrt(mean_grad)/self.const_settings["nAtoms"]
                 cond=mean_grad<=self.const_settings["thresholds"]["rms_grad"]
                 self.ifprint(threshold_template("rms_grad ",mean_grad,self.const_settings["thresholds"]["rms_grad"],cond))
+                self.log(threshold_template_no_color("rms_grad ",mean_grad,self.const_settings["thresholds"]["rms_grad"],cond), self.logname)
                 converged &= cond
             
 
@@ -907,6 +898,7 @@ class optTS:
                     max_displ=max(max_displ,np.linalg.norm(diff_n))
                 cond=max_displ<=self.const_settings["thresholds"]["max_displ"]
                 self.ifprint(threshold_template("max_displ",max_displ,self.const_settings["thresholds"]["max_displ"],cond))
+                self.log(threshold_template_no_color("max_displ",max_displ,self.const_settings["thresholds"]["max_displ"],cond), self.logname)
                 converged &= cond
             
             if self.const_settings["thresholds"]["rms_displ"]!=None:
@@ -917,16 +909,8 @@ class optTS:
                     
                 cond=mean_displ<=self.const_settings["thresholds"]["rms_displ"]
                 self.ifprint(threshold_template("rms_displ",mean_displ,self.const_settings["thresholds"]["rms_displ"],cond))
+                self.log(threshold_template_no_color("rms_displ",mean_displ,self.const_settings["thresholds"]["rms_displ"],cond), self.logname)
                 converged &= cond
-            
-                
-                
-
-                
-
-
-                
-        
 
                
         return converged
@@ -937,14 +921,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Method for finding TS by targeted bonds. You only need store bonds_to_search and <name>.xyz files to directory/ and then call that program', epilog="When using ORCA, it's need to export its folder to PATH, LD_LIBRARY_PATH. If using multiprocessoring (openmpi) it's need to export its folders lib/ to LD_LIBRARY_PATH and bin/ to PATH")
     parser.add_argument("xyz_path", type=str, help="xmol .xyz file with structure. File can be in any directory")
     parser.add_argument("-tm", "--threshold-mode", type=str, default="native",dest="threshold_mode", help="Mode of applied thresholds: \"standard\" (rms+max grad and displacement) or \"native\" (mean and relative force). default: \"native\"")
-    parser.add_argument("-tf", "--threshold-force", type=float, default=None,dest="threshold_force", help="that threshold is converged when max force on optimizing bonds less than its value. Default: 0.00004")
-    parser.add_argument("-tr", "--threshold-rel", type=float, default=None,dest="threshold_rel", help="that threshold is converged when max force on optimizing bonds divided by mean force on unconstrained bonds less then its value. Default: 8")
+    parser.add_argument("-tf", "--threshold-force", type=float, default=None,dest="threshold_force", help="that threshold is converged when max force on optimizing bonds less than its value")
+    parser.add_argument("-tr", "--threshold-rel", type=float, default=None,dest="threshold_rel", help="that threshold is converged when max force on optimizing bonds divided by mean force on unconstrained bonds less then its value")
     parser.add_argument("-tgmax", "--threshold-max-grad", type=float, default=None, dest="threshold_max_grad", help="standard maximum gadient threshold")
     parser.add_argument("-tgrms", "--threshold-rms-grad", type=float, default=None, dest="threshold_rms_grad", help="standard root-mean square gadient threshold")
     parser.add_argument("-tdmax", "--threshold-max-displ", type=float, default=None, dest="threshold_max_displ", help="standard maximum displacement threshold")
     parser.add_argument("-tdrms", "--threshold-rms-displ", type=float, default=None, dest="threshold_rms_displ", help="standard root-mean square displacement threshold")
+    parser.add_argument("-sa", "--step-along", type=float, default=0, dest="step_along", help="first geometry change. Resulting change eqal to values from bonds_to_search in angstroems for bonds, radians for angles and diedrals multiplied by that value. Useful when starting point is minimum point")
     parser.add_argument("--verbose",const=True, default=False,action='store_const', help="print output")
-    parser.add_argument("-s", "--steps", type=int, default=2000, help="maximum number of steps that allowed to optimize TS. Default: 2000")
+    parser.add_argument("-s", "--steps", type=int, default=2000, dest="steps", help="maximum number of steps that allowed to optimize TS. Default: 2000")
     parser.add_argument("-p", "--program", default="xtb",help="program that used for gradient calculation and constraint optimization. \"xtb\" or \"orca\". Default: \"xtb\"")
     parser.add_argument("-xfc","--xtb-force-consant",type=float,default=6.,dest="xfc",help="if using xtb that force constant is used in control file. Default: 6")
     parser.add_argument("-acc","--acc",type=float,default=0.05, dest="acc",help="if using xtb that acc is used. Default: 0.05")
@@ -962,6 +947,7 @@ if __name__ == "__main__":
           args.xyz_path, 
           thresholds={"mode":args.threshold_mode,"relative":args.threshold_rel, "force":args.threshold_force, "max_grad":args.threshold_max_grad, "rms_grad":args.threshold_rms_grad, "max_displ":args.threshold_max_displ, "rms_displ":args.threshold_rms_displ}, 
           print_output=args.verbose,
+          step_along=args.step_along,
           maxstep=args.steps, 
           program=dict(name=args.program, 
                         method_str=args.method_str,

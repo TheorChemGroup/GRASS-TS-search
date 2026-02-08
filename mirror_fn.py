@@ -10,11 +10,11 @@ def mirror_fn(grad,#list 3*N, gradient
               ):
     #print(search_DoFs)
     m_grad=np.array(grad)
-    nAthoms=len(xyzs)
+    nAtoms=len(xyzs)
     
     v0=[0.,0.,0.]
     mirror_vec=[]
-    for i in range(nAthoms):
+    for i in range(nAtoms):
         mirror_vec.append(v0)
     mirror_vec=np.array(mirror_vec)
     
@@ -38,7 +38,7 @@ def mirror_fn(grad,#list 3*N, gradient
             mirror_vec[dof[3]-1]+=dof[5]*vectors[2]
             mirror_vec[dof[4]-1]+=dof[5]*vectors[3]
 
-    for i in range(nAthoms):
+    for i in range(nAtoms):
         v_len=np.linalg.norm(mirror_vec[i])
         if v_len > 0.01:
             np.multiply(1/v_len, mirror_vec[i])
@@ -50,15 +50,14 @@ def mirror_fn(grad,#list 3*N, gradient
     mirror_grad_cos=abs(mul_res/(sqr_res*np.sum(m_grad*m_grad))**0.5)
     mirror_grad_cos_used=mirror_grad_cos/5
     if(be_verbose):
-        print(abs(mul_res/(sqr_res*np.sum(m_grad*m_grad))**0.5))
         print (f"mgcos {mirror_grad_cos_used}")
-    m_grad=np.subtract(m_grad,(1+mirror_grad_cos_used)*np.multiply(mul_res/sqr_res,mirror_vec))#Это и будет эффективная отражнная сила and this is the effective reflected force
-    m_grad_mean=np.array([0,0,0])#Вычтем "движение центра масс" Substract the "motion of mass center"
-    for i in range(nAthoms):
+    m_grad=np.subtract(m_grad,(1+mirror_grad_cos_used)*np.multiply(mul_res/sqr_res,mirror_vec))#and this is the effective reflected force
+    m_grad_mean=np.array([0,0,0])#Substract the "motion of mass center"
+    for i in range(nAtoms):
         m_grad_mean=np.add(m_grad_mean,m_grad[i])
-    m_grad_mean/=nAthoms
+    m_grad_mean/=nAtoms
     
-    for i in range(nAthoms):
+    for i in range(nAtoms):
         m_grad[i]-=m_grad_mean
     
     return m_grad, mirror_grad_cos
