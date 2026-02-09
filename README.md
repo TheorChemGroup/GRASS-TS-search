@@ -130,6 +130,17 @@ where:
 - `print_output` is flag to print output
 - `thresholds["relative"]` and `thresholds["force"]` must exceed 0 if used. Recommended `thresholds["relative"]`>5, `thresholds["force"]`>0.00002, the less, the more accurately the TS will be found, but at the same time, the longer it will take to find it. If both `thresholds["relative"]` and `thresholds["force"]` is non-zero both thresholds must converged
 
+## What happens when you run GRASS calculation?
+
+Example:
+```
+python TS_find_mirror.py tests/da_test/to_opt.xyz -tf 0.0001 -tr 100 -sa 0.1 -p orca -oms "PBE0 def2-SVP" --steps 500 --verbose
+```
+
+1) DoFs in bonds_to_search are measured. There are two DoFs, both are bonds, 1-11 is 2.043 and 2-14 is 2.406 Angstroems and in bonds_to_search they has +1 coefficients. 
+2) After, this values are altering by step_along (-sa keybord) by +0.1 Angstroem each (coefficient multiplied by -sa value) and molecular structure optimizes with constraints eqal to DoFs values. Strucure altering to new DoF values is casued by optimisation in xtb with harmonic constraints and big force constant. step_along is useful to destabilize structure if starting point is minimum point, usually 0.7 is enough. Grass itself **can't** escape stationary point therefore manual or automatical destabilization in reaction direction is needed. If you have alredy destabilized structure (like in da_test), this optimization in xtb may be skipped with -noppo (no pre-preoptimisation) key. Even when structure won't changes with -sa, this optimisation is used because of low time of xtb calculations and yield of closer to optimized geometry than constructed manually one.
+3) After optimization in xtb, runs optimization in orca to exclude influence on gradient of interatomic inceractions other than casued by displacement in reaction direction. GRASS is based on assumation that majority of forces in structure casued only by displacement in reaction direcrion and searches in this direction for statioary point. If (and typically only if) you have optimized with current level of theory structure, you may skip this step with -nopo (no preoptimisation) flag. -nopo also turns off pre-preoptimisation in xtb to avoid massive destabilization of structure by optimizing in different level of theory. Usually, if structure not optimized at the same level of theory as used for TS search, GRASS calculation takes at least 30-50% more time. If used program is xtb, only this pre-optimisation is used (pre-preoptimisation isn't needed).
+4) After all these preparations, starts GRASS TS search: on each step gradient is calculated, reflected by mirror_fn, altered by alter_grad to avoid topology violation in big structures and used in one of optimizers selected in start of calculation. Typically no_Adam is the best one, list of optimizers can be found in help.
 
 # Tips and tricks
 
