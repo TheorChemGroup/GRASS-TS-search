@@ -989,15 +989,15 @@ class optTS:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Method for finding TS by targeted bonds. You only need store bonds_to_search and <name>.xyz files to directory and then call that program', epilog="When using ORCA, it's need to export its folder to PATH, LD_LIBRARY_PATH. If using multiprocessoring (openmpi) it's need to export its folders lib/ to LD_LIBRARY_PATH and bin/ to PATH")
     parser.add_argument("xyz_path", type=str, help="xmol .xyz file with structure. File can be in any directory")
-    parser.add_argument("-tm", "--threshold-mode", type=str, default="native",dest="threshold_mode", help="Mode of applied thresholds: \"standard\" (rms+max grad and displacement) or \"native\" (mean and relative force). default: \"native\"")
+    parser.add_argument("-tm", "--threshold-mode", type=str, default="standard",dest="threshold_mode", help="Mode of applied thresholds: \"standard\" (rms+max grad and displacement) or \"native\" (mean and relative force). default: \"native\"")
     parser.add_argument("-tf", "--threshold-force", type=float, default=None,dest="threshold_force", help="that threshold is converged when max force on optimizing bonds less than its value")
     parser.add_argument("-tr", "--threshold-rel", type=float, default=None,dest="threshold_rel", help="that threshold is converged when max force on optimizing bonds divided by mean force on unconstrained bonds less then its value")
-    parser.add_argument("-tgmax", "--threshold-max-grad", type=float, default=None, dest="threshold_max_grad", help="standard maximum gadient threshold")
-    parser.add_argument("-tgrms", "--threshold-rms-grad", type=float, default=None, dest="threshold_rms_grad", help="standard root-mean square gadient threshold")
-    parser.add_argument("-tdmax", "--threshold-max-displ", type=float, default=None, dest="threshold_max_displ", help="standard maximum displacement threshold")
-    parser.add_argument("-tdrms", "--threshold-rms-displ", type=float, default=None, dest="threshold_rms_displ", help="standard root-mean square displacement threshold")
+    parser.add_argument("-tgmax", "--threshold-max-grad", type=float, default=4.5e-4, dest="threshold_max_grad", help="standard maximum gadient threshold, if 0 not used. Default: 4.5e-4")
+    parser.add_argument("-tgrms", "--threshold-rms-grad", type=float, default=3e-4, dest="threshold_rms_grad", help="standard root-mean square gadient threshold, if 0 not used. Default: 3e-4")
+    parser.add_argument("-tdmax", "--threshold-max-displ", type=float, default=1.8e-3, dest="threshold_max_displ", help="standard maximum displacement threshold, if 0 not used. Default: 1.8e-3")
+    parser.add_argument("-tdrms", "--threshold-rms-displ", type=float, default=1.2e-3, dest="threshold_rms_displ", help="standard root-mean square displacement threshold, if 0 not used. Default: 1.2e-3")
     parser.add_argument("-sa", "--step-along", type=float, default=0, dest="step_along", help="first geometry change. Resulting change eqal to values from bonds_to_search in angstroems for bonds, radians for angles and diedrals multiplied by that value. Useful when starting point is minimum point")
-    parser.add_argument("--verbose",const=True, default=False,action='store_const', help="print output")
+    parser.add_argument("--verbose",const=True, default=True, dest="verbose",action='store_const', help="print output")
     parser.add_argument("-nopo",const=True, default=False, dest="nopreopt", action='store_const', help="disable preoptimization. This is usually bad decision due to variety of forces in non-optimized geometry. With -nopo -noppo is insufficient (and also turned on)")
     parser.add_argument("-noppo",const=True,default=False, dest="noppo", action='store_const', help="disable pre-preoptimization in ORCA. This action also disables step_along due to lack of harmonic constraints in ORCA")
     parser.add_argument("-opt", "--optimizer", type=str, default=optTS.list_optimizers[0], dest="optimizer", help=f"must be from {optTS.list_optimizers}. Default: \"{optTS.list_optimizers[0]}\"")
@@ -1009,7 +1009,7 @@ if __name__ == "__main__":
     parser.add_argument("-OPATH", "--ORCA-PATH", type=str, default="", dest="OPATH",help="PATH of ORCA. Is necessary for multiprocessor calculations")
     parser.add_argument("-onp","--orca-number-processors", type=int, default=1,dest="nprocs", help="number of processors that using in ORCA work. Default: 1")
     parser.add_argument("-omm","--orca-memory",type=int, default=2000, dest="mem", help="memory per processor amount using in ORCA work. Default: 2000")
-    
+    parser.add_argument("--start-from-minimum", const=True, default=False, dest="default_sa", action='store_const', help="Allows TS optimization from minimum: if step-along not specified, sets it to 0.7")
     args=parser.parse_args()
     
     if args.nprocs > 1 and args.OPATH=="":
@@ -1017,11 +1017,17 @@ if __name__ == "__main__":
         exit(1)
     optTS(
           args.xyz_path, 
-          thresholds={"mode":args.threshold_mode,"relative":args.threshold_rel, "force":args.threshold_force, "max_grad":args.threshold_max_grad, "rms_grad":args.threshold_rms_grad, "max_displ":args.threshold_max_displ, "rms_displ":args.threshold_rms_displ}, 
+          thresholds={"mode":args.threshold_mode,
+                      "relative":args.threshold_rel, 
+                      "force":args.threshold_force, 
+                      "max_grad": None if args.threshold_max_grad  == 0 else args.threshold_max_grad, 
+                      "rms_grad": None if args.threshold_rms_grad  == 0 else args.threshold_rms_grad, 
+                      "max_displ":None if args.threshold_max_displ == 0 else args.threshold_max_displ, 
+                      "rms_displ":None if args.threshold_rms_displ == 0 else args.threshold_rms_displ}, 
           print_output=args.verbose,
           do_preopt=not args.nopreopt,
           ppo = not args.noppo,
-          step_along=args.step_along,
+          step_along = args.step_along if args.step_along >0 else (0.7 if args.default_sa else 0),
           maxstep=args.steps, 
           optimizer=args.optimizer,
           program=dict(name=args.program, 
