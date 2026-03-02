@@ -700,7 +700,7 @@ class optTS:
             linesplit=xyz_str.split()
             atoms.append(linesplit[0])
             xyzs.append([float(linesplit[1]), float(linesplit[2]), float(linesplit[3])])
-        return atoms, xyzs
+        return np.array(atoms), np.array(xyzs)
     
     def get_grad(self):
         grad=[]
@@ -735,7 +735,7 @@ class optTS:
             self.Method.xyzs_strs.append(f"{self.atoms[i]} {float(self.xyzs[i][0])} {float(self.xyzs[i][1])} {float(self.xyzs[i][2])}\n")
 
     def mirror(self):
-        self.grad, mirror_grad_cos=mirror_fn(self.grad,self.xyzs,self.search_DoFs, self.const_settings["print_output"])
+        self.grad, mirror_grad_cos=mirror_fn(self.grad,self.xyzs,self.search_DoFs, self.atoms,self.const_settings["print_output"])
         return mirror_grad_cos
     def move_DoFs(self):
         b1=0.2

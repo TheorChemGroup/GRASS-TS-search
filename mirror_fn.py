@@ -2,10 +2,20 @@
 import numpy as np
 from angle_3d_rev import find_vectors as f_v_a
 from dihedral_3d_rev import find_vectors as f_v_d
+from weights import Mr
+
+def find_center(xyzs, atoms):
+    #C = sum(mass*xyz)/sum(mass) = m1/m2
+    masses=[]
+    for atom in atoms:
+        masses.append(Mr[atom])
+    masses=np.array(masses)
+    return 1/np.sum(masses) * np.sum(masses[:, np.newaxis]*xyzs, axis=0)
 
 def mirror_fn(grad,#list 3*N, gradient
-              xyzs,#list 3*N, coord i.e.[[0, 1, 1],...]
+              xyzs,#np array 3*N, coord i.e.[[0, 1, 1],...]
               search_DoFs,#list of reaction dofs: type, atoms, value. i.e. [["b", 1, 2, -1"],...] for stretching (-1) bond (b) between 1 and 2 athoms
+              atoms,
               be_verbose
               ):
     #print(search_DoFs)
@@ -60,6 +70,15 @@ def mirror_fn(grad,#list 3*N, gradient
     for i in range(nAtoms):
         m_grad[i]-=m_grad_mean
     
+    #Elimenate central rotation
+    if(type(atoms)!=type(None)):
+        C=find_center(xyzs, atoms)
+        r=np.subtract(xyzs,C)
+        moment_grad=np.cross(m_grad,r)
+        mean_mg=1/len(moment_grad)*np.sum(moment_grad, axis=0)
+        
+        m_grad=m_grad+np.cross(mean_mg, xyzs)/np.sum((r * r),axis=1)[:, np.newaxis]
+
     return m_grad, mirror_grad_cos
 
 if __name__ == "__main__":
@@ -96,4 +115,11 @@ if __name__ == "__main__":
         ["b", 1, 2, 1],
         ["b", 3, 4, 1]
     ]
-    print(mirror_fn(forces,xyzs,search_dofs,False))
+    print(mirror_fn(forces,xyzs,search_dofs, None, False))
+
+    xyzs=np.array([[1,0,0],[0,1,0], [-1,0,0],[0,-1,0]])
+    forces=[[1,1,0],[0,0,0],[1,-1,0],[2,0,0]]
+    atoms=["H","H","H","H"]
+    print(mirror_fn(forces,xyzs,[["b", 1, 3, 1]], atoms, False))#rotation + shift force, result must be 0, dof is required? but in this case has no action
+
+    print(find_center(np.array([[0,0,0],[0,2,2], [2,0,2],[2,2,0]]),["O","H","H","O"]))#result  must be (1,1,~0.1)
