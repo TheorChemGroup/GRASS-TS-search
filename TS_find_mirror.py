@@ -303,11 +303,11 @@ class optTS:
             return
 
             
-        if(optimizer not in optTS.list_optimizers):
-            self.ifprint("\033[91mWARN!\033[00m Gradient descent optimizer used")
-
         self.const_settings=dict(rpath=rpath,xyz_name=xyz_name,print_output=print_output, thresholds=thresholds,maxstep=int(maxstep),mult=mult, do_preopt=do_preopt,step_along=step_along, optimizer=optimizer, ppo=ppo, step_shift=(1 if (ppo and do_preopt and program["name"]=="orca") else 0) + 1 if do_preopt else 0)
         self.settings=dict(step=1,prev_dc=100,bond_reach_critical_len=True, mirror_coef=mirror_coef)
+
+        if(optimizer not in optTS.list_optimizers):
+            self.ifprint("\033[91mWARN!\033[00m Gradient descent optimizer used")
 
         #self.log("",os.path.join(self.const_settings["rpath"],"way_log.txt"))
 
@@ -600,6 +600,7 @@ class optTS:
                 self.coef_grad=0.7
                 
                 #for ADAM
+                self.cumulative_increase=1
                 self.mt=np.zeros((self.const_settings["nAtoms"],3))
                 self.vt=0
                 self.mt_r=np.zeros((self.const_settings["nAtoms"],3))
@@ -623,6 +624,7 @@ class optTS:
                     if not self.const_settings["ppo"] and self.const_settings["program_name"]=="orca":
                         self.ifprint("\033[91mWARN!\033[00m You have turned pre-preoptimization off. Due to lack of harmonic constraints in orca, step_along is impossible and TS search will start from optnmized but unbiased geometry\n")
                     
+                    
                     if self.const_settings["ppo"] and self.const_settings["program_name"]=="orca":
                         self.Method_ppo.opt_constrain(self.const_settings["xyz_name"], self.constrain_list)
                         self.settings["step"]+=1
@@ -632,9 +634,13 @@ class optTS:
                     
                     self.Method.read_xyz("!result")
                     self.settings["step"]+=1
+                else:
+                    self.ifprint("\033[91mWARN!\033[00m In most cases usage of -nopo casues slow optimization and non-convergence. It's usage reasonable if preoptimization yields structure that can't escape maximum and casues optimized geometry to have 2 imaginary modes\n")
+                    
                 
                 self.atoms, self.xyzs=self.get_xyzs()
                 self.log_xyz()
+                print("grad first")
                 self.Method.grad("!result")
                 self.Method.read_grad() 
                 
@@ -658,7 +664,7 @@ class optTS:
                 self.constrain_list=[]
                 
                 proj_len=self.move_DoFs()
-
+                
                 if self.const_settings["nDoFs"]>1:
                     string_curve=f'{self.vec_len(self.Method.extract_AB_dir(self.search_DoFs[0][1],self.search_DoFs[0][2]))} {self.vec_len(self.Method.extract_AB_dir(self.search_DoFs[1][1],self.search_DoFs[1][2]))} {self.Method.get_energy()}\r\n'
                     self.log(string_curve, "way_log.txt")
@@ -738,11 +744,11 @@ class optTS:
         self.grad, mirror_grad_cos=mirror_fn(self.grad,self.xyzs,self.search_DoFs, self.atoms,self.const_settings["print_output"])
         return mirror_grad_cos
     def move_DoFs(self):
-        b1=0.2
-        b1_diff=0.7
-        b2=0.995
+        b1=0.7
+        b1_diff=0.995
+        b2=0.3
         eps=1e-7
-        eta=1.5e-2
+        eta=0.7#*self.cumulative_increase
         eta_diff=1e-2
         eta_r=3e-2
 
@@ -750,21 +756,22 @@ class optTS:
         mgcos=self.mirror()
         mgsin_sqr=(1-mgcos*mgcos)**0.5
         
-        TRUST_RAD=0.1
+        TRUST_RAD=0.01
         #if(maxgrad*self.coef_grad>TRUST_RAD):
         #    self.coef_grad=TRUST_RAD/maxgrad
             
-        self.alter_grad()
+        #self.alter_grad()
         vec_chang=None #to keep alive after  going from if-else
         if self.const_settings["optimizer"]=="no_Adam":
+            
             #no_ADAM (rotational correction)
             self.mt = b1*self.mt + (1-b1)*self.grad#*self.coef_grad
             self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)#*self.coef_grad**2
-            mt_bias=1/(1-b1**(self.settings["step"]-self.const_settings["step_shift"]))*self.mt
-            vt_bias=(1-b2**(self.settings["step"]-self.const_settings["step_shift"]))*self.vt
+            mt_bias = 1/(1-b1**(self.settings["step"]-self.const_settings["step_shift"])) * self.mt
+            vt_bias =   (1-b2**(self.settings["step"]-self.const_settings["step_shift"])) * self.vt
             
-            if self.settings["step"]-self.const_settings["step_shift"] > 1:
-                cur_diff_mt = -self.prev_grad+self.grad
+            if self.settings["step"]-self.const_settings["step_shift"] > 1 and 0:
+                cur_diff_mt = -self.prev_grad+self.grad# "diff_" variables used to improve convergence when mgsin is big (i.e. selected vector is parallel to minimum curvature direction)
                 self.diff_mt = b1_diff*self.diff_mt + (1-b1_diff)*cur_diff_mt
                 self.diff_vt = b2*self.diff_vt + (1-b2)*np.sum(cur_diff_mt*cur_diff_mt)
                 diff_mt_bias=1/(1-b1_diff**(self.settings["step"]-self.const_settings["step_shift"]))*self.diff_mt
@@ -772,11 +779,37 @@ class optTS:
 
                 vec_chang=-eta*(vt_bias+eps)**(-0.5) * mt_bias - eta_diff * mgsin_sqr * (diff_vt_bias+eps)**(-0.5)*diff_mt_bias
             else:
-                vec_chang=-eta*(vt_bias+eps)**(-0.5) * mt_bias
+                vec_chang=-eta * mt_bias
+
+            norm_chang=np.linalg.norm(vec_chang)/self.const_settings["nAtoms"] #rms xyz change
+            if(norm_chang<0.0001):
+                self.cumulative_increase*=1.5
+
+            print(norm_chang)
+            if(norm_chang>TRUST_RAD):
+                vec_chang=TRUST_RAD/norm_chang*vec_chang
+                self.cumulative_increase*=0.7
+            self.xyzs=self.xyzs+vec_chang
+            
+            self.prev_grad=copy.deepcopy(self.grad)
+            
+            self.update_xyzs_strs()
+            print("grad move")
+            self.Method.grad("!result")
+            self.Method.read_grad() 
+        elif self.const_settings["optimizer"]=="Adam":
+            #no_ADAM (rotational correction)
+            self.mt = b1*self.mt + (1-b1)*self.grad#*self.coef_grad
+            self.vt = b2*self.vt + (1-b2)*np.sum(self.grad*self.grad)#*self.coef_grad**2
+            mt_bias=1/(1-b1**(self.settings["step"]-self.const_settings["step_shift"]))*self.mt
+            vt_bias=1/(1-b2**(self.settings["step"]-self.const_settings["step_shift"]))*self.vt
+            
+            vec_chang=-eta/(np.sqrt(vt_bias)+eps) * mt_bias
 
             norm_chang=np.linalg.norm(vec_chang)
             if(norm_chang>TRUST_RAD):
                 vec_chang=TRUST_RAD/norm_chang*vec_chang
+
             self.xyzs=self.xyzs+vec_chang
             
             self.prev_grad=copy.deepcopy(self.grad)
@@ -812,6 +845,7 @@ class optTS:
         elif self.const_settings["optimizer"]=="rot_Adam":
             if(self.settings["step"]-self.const_settings["step_shift"]<2):
                 #adam (rotational correction)
+                init_xyzs=copy.deepcopy(self.xyzs)
                 self.prev_grad=copy.deepcopy(self.grad)
                 
                 vec_chang=-self.grad*self.coef_grad
@@ -883,12 +917,25 @@ class optTS:
             self.Method.grad("!result")
             self.Method.read_grad() 
         else:#GD
+            print("GD step")
             vec_chang=-self.grad*self.coef_grad
+
+            norm_chang=np.linalg.norm(vec_chang)/self.const_settings["nAtoms"] #rms xyz change
+            if(norm_chang<0.0001):
+                self.cumulative_increase*=1.5
+
+            print(norm_chang)
+            if(norm_chang > TRUST_RAD):
+                vec_chang = TRUST_RAD / norm_chang * vec_chang
+                self.coef_grad*=0.7
+            elif self.coef_grad<0.7 and norm_chang < TRUST_RAD/4:
+                self.coef_grad+=(0.7 - self.coef_grad) * 0.1
+            
             self.xyzs+=vec_chang
             self.update_xyzs_strs()
             self.Method.grad("!result")
             self.Method.read_grad()
-        
+
         self.diff=vec_chang
         self.settings["step"]+=1
         
