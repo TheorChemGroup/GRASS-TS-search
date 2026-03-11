@@ -264,7 +264,7 @@ class usingMethod:
         if len(all_remain_files)>0:
             if not os.path.exists("opt_steps"):
                 os.mkdir("opt_steps")
-            step_folder_name=f"step_{len(os.listdir("opt_steps"))}"
+            step_folder_name=f"step_{len(os.listdir('opt_steps'))}"
             
             for file in all_remain_files:
                 if not (file=="bonds_to_search" or file=="grad_log" or file.endswith(".xyz") or os.path.isdir(file)):
