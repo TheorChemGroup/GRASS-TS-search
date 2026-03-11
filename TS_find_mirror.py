@@ -2,6 +2,8 @@
 import argparse
 import numpy as np,os,subprocess,datetime,copy
 from mirror_fn import mirror_fn
+import random
+random.seed(1)
 
 class usingMethod:
     def __init__(self,program_name, dict_of_pars):
@@ -28,6 +30,8 @@ class usingMethod:
             self.ORCA_PATH=dict_of_pars["ORCA_PATH"]
         else:
             raise ValueError(f"Unknown method: {self.program_name}")
+        
+        self.grad_strs=[]
 
     #generic functions
     def get_energy(self):
@@ -195,7 +199,8 @@ class usingMethod:
     #~xtb
     #orca
     def __get_energy_orca(self):
-        return float(self.grad_strs[7])#8-th string contains energy
+        return 0 if self.grad_strs == [] else float(self.grad_strs[7])#8-th string contains energy
+    
     
     def __extract_AB_dir_orca(self, num_A, num_B):
         vec_A=self.xyzs_strs[num_A+1].split()[1:]
@@ -280,7 +285,7 @@ class usingMethod:
         
 class optTS:
     list_optimizers=["no_Adam", "optimistic_Adam", "Adam_1", "rot_Adam"]
-    def __init__(self, xyz_path:str, thresholds={} , mirror_coef:float=1, program=dict(name="xtb"), mult=1, ppo=True, maxstep:int=7000, do_preopt=True,step_along=0, print_output:bool=True, optimizer="no_Adam"):
+    def __init__(self, xyz_path:str, thresholds={} , program=dict(name="xtb"), mult=1, ppo=True, maxstep:int=7000, nodispl=False, do_preopt=True,step_along=0, print_output:bool=True, optimizer="no_Adam"):
         cwd=os.getcwd()
         
         rpath=os.path.join(cwd, os.path.dirname(xyz_path))
@@ -303,8 +308,20 @@ class optTS:
             return
 
             
-        self.const_settings=dict(rpath=rpath,xyz_name=xyz_name,print_output=print_output, thresholds=thresholds,maxstep=int(maxstep),mult=mult, do_preopt=do_preopt,step_along=step_along, optimizer=optimizer, ppo=ppo, step_shift=(1 if (ppo and do_preopt and program["name"]=="orca") else 0) + 1 if do_preopt else 0)
-        self.settings=dict(step=1,prev_dc=100,bond_reach_critical_len=True, mirror_coef=mirror_coef)
+        self.const_settings=dict(rpath=rpath,
+                                xyz_name=xyz_name,
+                                print_output=print_output, 
+                                thresholds=thresholds,
+                                maxstep=int(maxstep),
+                                mult=mult, 
+                                do_preopt=do_preopt,
+                                step_along=step_along, 
+                                optimizer=optimizer, 
+                                ppo=ppo, 
+                                step_shift=(1 if (ppo and do_preopt and program["name"]=="orca") else 0) + 1 if do_preopt else 0, 
+                                nodispl = nodispl)
+        self.settings=dict(step=1,
+                           bond_reach_critical_len=True)
 
         if(optimizer not in optTS.list_optimizers):
             self.ifprint("\033[91mWARN!\033[00m Gradient descent optimizer used")
@@ -373,7 +390,7 @@ class optTS:
         
         self.Method=usingMethod(program["name"],dict_to_uM)
         self.Method.read_xyz(self.const_settings["xyz_name"])
-
+        
         self.log_xyz() 
 
         self.change_projections={}
@@ -571,11 +588,15 @@ class optTS:
             while DoF_value<-180:
                 DoF_value+=360
         return DoF_value
+    
+    def random_displ(self, xyzs, max_displ):
+        for j in range(len(xyzs)):
+            for i in range(3):
+                self.xyzs[j][i]=xyzs[j][i] + (random.random()*2-1)*max_displ
     #~init fns
         
     #main loop fns
     def reset(self):
-        self.settings["prev_dc"]=100
         self.settings["bond_reach_critical_len"]=True
         self.change_projections=copy.deepcopy(self.init_change_projections)
 
@@ -594,6 +615,7 @@ class optTS:
 
                 self.lens.clear()
                 self.ifprint("lens is clear")
+
                 self.atoms,self.xyzs=self.get_xyzs()
 
                 self.prev_maxgrad=100000
@@ -639,6 +661,11 @@ class optTS:
                     
                 
                 self.atoms, self.xyzs=self.get_xyzs()
+                if not self.const_settings["nodispl"]:
+                    self.ifprint("displacement")
+                    self.random_displ(self.xyzs,0.0)
+                    self.update_xyzs_strs()
+                    
                 self.log_xyz()
                 print("grad first")
                 self.Method.grad("!result")
@@ -1045,6 +1072,7 @@ if __name__ == "__main__":
     parser.add_argument("-tdrms", "--threshold-rms-displ", type=float, default=1.2e-3, dest="threshold_rms_displ", help="standard root-mean square displacement threshold, if 0 not used. Default: 1.2e-3")
     parser.add_argument("-sa", "--step-along", type=float, default=0, dest="step_along", help="first geometry change. Resulting change eqal to values from bonds_to_search in angstroems for bonds, radians for angles and diedrals multiplied by that value. Useful when starting point is minimum point")
     parser.add_argument("--verbose",const=True, default=True, dest="verbose",action='store_const', help="print output")
+    parser.add_argument("--displ",const=True, default=False, dest="displ",action='store_const', help="turn off random displacement (helps on too symmetrical structures)")
     parser.add_argument("-nopo",const=True, default=False, dest="nopreopt", action='store_const', help="disable preoptimization. This is usually bad decision due to variety of forces in non-optimized geometry. With -nopo -noppo is insufficient (and also turned on)")
     parser.add_argument("-noppo",const=True,default=False, dest="noppo", action='store_const', help="disable pre-preoptimization in ORCA. This action also disables step_along due to lack of harmonic constraints in ORCA")
     parser.add_argument("-opt", "--optimizer", type=str, default=optTS.list_optimizers[0], dest="optimizer", help=f"must be from {optTS.list_optimizers}. Default: \"{optTS.list_optimizers[0]}\"")
@@ -1076,6 +1104,7 @@ if __name__ == "__main__":
           ppo = not args.noppo,
           step_along = args.step_along if args.step_along >0 else (0.7 if args.default_sa else 0),
           maxstep=args.steps, 
+          nodispl=not args.displ,
           optimizer=args.optimizer,
           program=dict(name=args.program, 
                         method_str=args.method_str,
