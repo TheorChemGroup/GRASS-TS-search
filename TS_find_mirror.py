@@ -663,7 +663,7 @@ class optTS:
                 self.atoms, self.xyzs=self.get_xyzs()
                 if not self.const_settings["nodispl"]:
                     self.ifprint("displacement")
-                    self.random_displ(self.xyzs,0.0)
+                    self.random_displ(self.xyzs,0.05)
                     self.update_xyzs_strs()
                     
                 self.log_xyz()
