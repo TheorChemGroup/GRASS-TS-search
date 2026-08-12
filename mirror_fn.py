@@ -16,8 +16,8 @@ def mirror_fn(grad,#list 3*N, gradient
               xyzs,#np array 3*N, coord i.e.[[0, 1, 1],...]
               search_DoFs,#list of reaction dofs: type, atoms, value. i.e. [["b", 1, 2, -1"],...] for stretching (-1) bond (b) between 1 and 2 athoms
               atoms,
-              be_verbose
-              ):
+              be_verbose,
+              add_mul=1):
     #print(search_DoFs)
     m_grad=np.array(grad)
     nAtoms=len(xyzs)
@@ -61,7 +61,7 @@ def mirror_fn(grad,#list 3*N, gradient
     mirror_grad_cos_used=mirror_grad_cos/5
     if(be_verbose):
         print (f"mgcos {mirror_grad_cos_used}")
-    m_grad=np.subtract(m_grad,(1+mirror_grad_cos_used)*np.multiply(mul_res/sqr_res,mirror_vec))#and this is the effective reflected force
+    m_grad=np.subtract(m_grad,(1+mirror_grad_cos_used * add_mul)*np.multiply(mul_res/sqr_res,mirror_vec))#and this is the effective reflected force
     m_grad_mean=np.array([0,0,0])#Substract the "motion of mass center"
     for i in range(nAtoms):
         m_grad_mean=np.add(m_grad_mean,m_grad[i])
@@ -74,10 +74,11 @@ def mirror_fn(grad,#list 3*N, gradient
     if(type(atoms)!=type(None)):
         C=find_center(xyzs, atoms)
         r=np.subtract(xyzs,C)
+        #print(f"r:\n{r}\n")
         moment_grad=np.cross(m_grad,r)
         mean_mg=1/len(moment_grad)*np.sum(moment_grad, axis=0)
         
-        m_grad=m_grad+np.cross(mean_mg, xyzs)/np.sum((r * r),axis=1)[:, np.newaxis]
+        m_grad=m_grad+np.cross(mean_mg, r)/np.sum((r * r),axis=1)[:, np.newaxis]
 
     return m_grad, mirror_grad_cos
 
@@ -123,3 +124,11 @@ if __name__ == "__main__":
     print(mirror_fn(forces,xyzs,[["b", 1, 3, 1]], atoms, False))#rotation + shift force, result must be 0, dof is required? but in this case has no action
 
     print(find_center(np.array([[0,0,0],[0,2,2], [2,0,2],[2,2,0]]),["O","H","H","O"]))#result  must be (1,1,~0.1)
+
+    xyzs = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+    atoms = ["C", "C"]
+    forces = np.array([[0.0, 1.0, 0.0], [0.0, -1.0, 0.0]])
+    atoms=["C","C"]
+    print(mirror_fn(forces,xyzs,[["b", 0, 1, 1]], atoms, False))#rotation + shift force, result must be 0, dof is required? but in this case has no action
+
+
